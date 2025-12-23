@@ -12,6 +12,7 @@ class DataHandler:
         self.equipments: List[Equipment] = []
         self.assignments: List[SessionAssignment] = []
         self.sound_design_settings: dict = {}
+        self.performance_memo: str = ""
         
         self.recent_files: List[str] = []
         self.load_recent_files_list()
@@ -27,7 +28,8 @@ class DataHandler:
             "songs": [s.to_dict() for s in self.songs],
             "equipments": [e.to_dict() for e in self.equipments],
             "assignments": [a.to_dict() for a in self.assignments],
-            "sound_design_settings": self.sound_design_settings
+            "sound_design_settings": self.sound_design_settings,
+            "performance_memo": self.performance_memo
         }
         try:
             with open(target_path, 'w', encoding='utf-8') as f:
@@ -55,6 +57,7 @@ class DataHandler:
             self.equipments = [Equipment.from_dict(e) for e in data.get("equipments", [])]
             self.assignments = [SessionAssignment.from_dict(a) for a in data.get("assignments", [])]
             self.sound_design_settings = data.get("sound_design_settings", {})
+            self.performance_memo = data.get("performance_memo", "")
             
             self.filepath = filepath
             self.check_integrity()
@@ -72,6 +75,7 @@ class DataHandler:
         self.equipments = []
         self.assignments = []
         self.sound_design_settings = {}
+        self.performance_memo = ""
         
         # Load defaults
         self.create_defaults()

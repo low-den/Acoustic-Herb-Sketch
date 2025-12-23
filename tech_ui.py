@@ -120,7 +120,9 @@ class TechWidget(QWidget):
         cue_inner = QVBoxLayout()
         
         # Song List
-        cue_inner.addWidget(QLabel("곡 목록"))
+        lbl_song = QLabel("곡 목록")
+        lbl_song.setStyleSheet("font-weight: bold;")
+        cue_inner.addWidget(lbl_song)
         self.song_list = QListWidget() # Added song list
         cue_inner.addWidget(self.song_list, 1)
         
@@ -165,7 +167,9 @@ class TechWidget(QWidget):
         cue_inner.addLayout(cue_btn_layout)
         
         # Memo
-        cue_inner.addWidget(QLabel("공연 전반 메모"))
+        lbl_memo = QLabel("공연 전반 메모")
+        lbl_memo.setStyleSheet("font-weight: bold;")
+        cue_inner.addWidget(lbl_memo)
         # Memo and Export Layout
         memo_export_layout = QHBoxLayout()
         

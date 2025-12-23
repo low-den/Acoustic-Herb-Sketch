@@ -51,12 +51,18 @@ class TechController(QObject):
         self.ui.piano1_row.group.idClicked.connect(lambda id: self.update_sound_setting("piano1_di", id))
         self.ui.piano2_row.group.idClicked.connect(lambda id: self.update_sound_setting("piano2_di", id))
         
+        # Memo Signal
+        self.ui.memo_edit.textChanged.connect(self.update_performance_memo)
+        
         # Shortcuts
         self.ui.eq_table.installEventFilter(self)
         self.ui.cue_table.installEventFilter(self)
 
     def update_sound_setting(self, key, value):
         self.service.data_handler.sound_design_settings[key] = value
+
+    def update_performance_memo(self):
+        self.service.data_handler.performance_memo = self.ui.memo_edit.toPlainText()
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.Type.KeyPress:
@@ -130,6 +136,12 @@ class TechController(QObject):
         restore_group(self.ui.eg2_row.group, "eg2_cable")
         restore_group(self.ui.piano1_row.group, "piano1_di")
         restore_group(self.ui.piano2_row.group, "piano2_di")
+        
+        # Restore Performance Memo
+        # Block signal to prevent feedback loop or unnecessary updates during load
+        self.ui.memo_edit.blockSignals(True)
+        self.ui.memo_edit.setText(self.service.data_handler.performance_memo)
+        self.ui.memo_edit.blockSignals(False)
 
     def refresh_songs(self):
         current_song_id = None
@@ -150,7 +162,7 @@ class TechController(QObject):
         item = self.ui.song_list.currentItem()
         if not item:
             self.ui.cue_table.setRowCount(0)
-            self.ui.memo_edit.clear()
+            # Memo is global, do not clear
             return
             
         song_id = item.data(Qt.ItemDataRole.UserRole)
