@@ -92,6 +92,56 @@ class BatchUpdateRequirementsCommand(QUndoCommand):
                 eq.required_count = self.old_requirements[eq.id]
         self.update_signal.emit()
 
+class UpdatePerformanceMemoCommand(QUndoCommand):
+    def __init__(self, data_handler: DataHandler, new_memo: str, update_signal):
+        super().__init__()
+        self.data_handler = data_handler
+        self.new_memo = new_memo
+        self.old_memo = data_handler.performance_memo
+        self.update_signal = update_signal
+        self.setText("Update Performance Memo")
+
+    def redo(self):
+        self.data_handler.performance_memo = self.new_memo
+        # Memo update usually doesn't need to refresh entire UI, but consistent with others
+        # self.update_signal.emit() 
+
+    def undo(self):
+        self.data_handler.performance_memo = self.old_memo
+        self.update_signal.emit() # Signal needed to update UI text box
+
+    def id(self):
+        return 1001 # Unique ID for this command type
+
+    def mergeWith(self, other):
+        if other.id() != self.id():
+            return False
+        # Update new value, keep original old value
+        self.new_memo = other.new_memo
+        return True
+
+class UpdateSoundDesignCommand(QUndoCommand):
+    def __init__(self, data_handler: DataHandler, key: str, value: int, update_signal):
+        super().__init__()
+        self.data_handler = data_handler
+        self.key = key
+        self.new_value = value
+        self.old_value = data_handler.sound_design_settings.get(key, -1)
+        self.update_signal = update_signal
+        self.setText(f"Update Sound Design {key}")
+
+    def redo(self):
+        self.data_handler.sound_design_settings[self.key] = self.new_value
+        # self.update_signal.emit() # Optional, radio buttons are already updated by UI
+
+    def undo(self):
+        if self.old_value == -1:
+            if self.key in self.data_handler.sound_design_settings:
+                del self.data_handler.sound_design_settings[self.key]
+        else:
+            self.data_handler.sound_design_settings[self.key] = self.old_value
+        self.update_signal.emit() # Need to update UI
+
 class TechService(QObject):
     data_changed = pyqtSignal()
     
@@ -113,6 +163,14 @@ class TechService(QObject):
 
     def update_equipment(self, eq_id: str, field: str, value):
         cmd = UpdateEquipmentCommand(self.data_handler, eq_id, field, value, self.data_changed)
+        self.undo_stack.push(cmd)
+
+    def update_performance_memo(self, text: str):
+        cmd = UpdatePerformanceMemoCommand(self.data_handler, text, self.data_changed)
+        self.undo_stack.push(cmd)
+
+    def update_sound_design_setting(self, key: str, value: int):
+        cmd = UpdateSoundDesignCommand(self.data_handler, key, value, self.data_changed)
         self.undo_stack.push(cmd)
 
     def get_calculated_requirements(self, settings: dict):

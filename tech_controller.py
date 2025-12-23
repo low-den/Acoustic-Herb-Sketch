@@ -59,10 +59,13 @@ class TechController(QObject):
         self.ui.cue_table.installEventFilter(self)
 
     def update_sound_setting(self, key, value):
-        self.service.data_handler.sound_design_settings[key] = value
+        self.service.update_sound_design_setting(key, value)
 
     def update_performance_memo(self):
-        self.service.data_handler.performance_memo = self.ui.memo_edit.toPlainText()
+        text = self.ui.memo_edit.toPlainText()
+        # Avoid creating command if text hasn't changed (loop prevention)
+        if text != self.service.data_handler.performance_memo:
+            self.service.update_performance_memo(text)
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.Type.KeyPress:
