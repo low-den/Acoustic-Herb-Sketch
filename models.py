@@ -5,8 +5,9 @@ import uuid
 
 # Constants
 DEFAULT_SECTION_NAMES = [
-    "곡 전반", "인트로", "1절", "2절", "3절", "브릿지", 
-    "후렴", "간주", "아웃트로", 
+    "곡 전반", "Intro", "Verse 1 (1절)", "Verse 2 (2절)", "Verse 3 (3절)", "Pre-Chorus 1 (1절)", 
+    "Pre-Chorus 2 (2절)", "Pre-Chorus 3 (3절)", "Chorus 1 (1절 후렴)", "Chorus 2 (2절 후렴)", "Chorus 3 (3절 후렴)", 
+    "Bridge", "Interlude (간주)", "Interlude 1 (간주)", "Interlude 2 (간주)", "Outro", 
     "솔로", "솔로 (기타)", "솔로 (피아노)", "솔로 (베이스)", "솔로 (드럼)"
 ]
 
