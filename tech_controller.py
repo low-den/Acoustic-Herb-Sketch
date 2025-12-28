@@ -724,9 +724,29 @@ class TechController(QObject):
         pass # Removed button
 
     def export_pdf(self):
+        import os
         filename, _ = QFileDialog.getSaveFileName(self.ui, "테크라이더 내보내기", "테크라이더.pdf", "PDF Files (*.pdf)")
         if not filename:
             return
+
+        if os.path.exists(filename):
+            reply = QMessageBox.warning(self.ui, "파일 존재함", 
+                                        f"'{os.path.basename(filename)}' 파일이 이미 존재합니다.\n덮어쓰시겠습니까?\n\n(아니오를 선택하면 저장이 취소됩니다. 다른 이름으로 다시 시도해주세요.)", 
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.No:
+                return
+            
+            # Check if file is open (locked)
+            try:
+                with open(filename, 'a'):
+                    pass
+            except PermissionError:
+                QMessageBox.critical(self.ui, "파일 열려있음", 
+                                     f"'{os.path.basename(filename)}' 파일이 다른 프로그램에서 열려있어 덮어쓸 수 없습니다.\n파일을 닫고 다시 시도해주세요.")
+                return
+            except Exception as e:
+                QMessageBox.critical(self.ui, "오류", f"파일 접근 중 오류가 발생했습니다:\n{str(e)}")
+                return
 
         writer = QPdfWriter(filename)
         writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
