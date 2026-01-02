@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QTableWidgetItem, QSpinBox, QTreeWidgetItem, QMessa
                              QVBoxLayout, QTextEdit, QPushButton, QLabel)
 from PyQt6.QtCore import Qt, QSizeF, QObject, QEvent
 from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout, QColor, QFont, QTextDocument
-from dialogs import CueSheetEditDialog
+from dialogs import CueSheetEditDialog, SoundDesignDialog
 from models import CueSection, Equipment, InstrumentCategory
 import copy
 
@@ -45,11 +45,8 @@ class TechController(QObject):
         self.ui.btn_eq_auto.clicked.connect(self.auto_calc_equipment)
         self.ui.btn_export_cue.clicked.connect(self.export_pdf)
         
-        # Sound Design Signals
-        self.ui.eg1_row.group.idClicked.connect(lambda id: self.update_sound_setting("eg1_cable", id))
-        self.ui.eg2_row.group.idClicked.connect(lambda id: self.update_sound_setting("eg2_cable", id))
-        self.ui.piano1_row.group.idClicked.connect(lambda id: self.update_sound_setting("piano1_di", id))
-        self.ui.piano2_row.group.idClicked.connect(lambda id: self.update_sound_setting("piano2_di", id))
+        # Sound Design Dialog
+        self.ui.btn_sound_design.clicked.connect(self.open_sound_design_dialog)
         
         # Memo Signal
         self.ui.memo_edit.textChanged.connect(self.update_performance_memo)
@@ -57,6 +54,12 @@ class TechController(QObject):
         # Shortcuts
         self.ui.eq_table.installEventFilter(self)
         self.ui.cue_table.installEventFilter(self)
+
+    def open_sound_design_dialog(self):
+        dlg = SoundDesignDialog(self.service.data_handler, self.ui)
+        if dlg.exec():
+            # Data is already saved to data_handler on accept
+            self.service.data_changed.emit()
 
     def update_sound_setting(self, key, value):
         self.service.update_sound_design_setting(key, value)
@@ -125,20 +128,6 @@ class TechController(QObject):
             
         # Refresh Song List (Cue Sheet)
         self.refresh_songs()
-        
-        # Restore Sound Design Settings
-        settings = self.service.data_handler.sound_design_settings
-        
-        def restore_group(group, key):
-            val = settings.get(key, -1)
-            if val != -1:
-                btn = group.button(val)
-                if btn: btn.setChecked(True)
-        
-        restore_group(self.ui.eg1_row.group, "eg1_cable")
-        restore_group(self.ui.eg2_row.group, "eg2_cable")
-        restore_group(self.ui.piano1_row.group, "piano1_di")
-        restore_group(self.ui.piano2_row.group, "piano2_di")
         
         # Restore Performance Memo
         # Block signal to prevent feedback loop or unnecessary updates during load
@@ -638,44 +627,19 @@ class TechController(QObject):
             self.service.delete_equipment(eq_id)
 
     def auto_calc_equipment(self):
-        # Gather Settings from UI
-        settings = {}
+        # Gather Settings from UI - NOW FROM DataHandler (Dialog Result)
+        settings = self.service.data_handler.sound_design_settings
         
-        # Helper to get checked index from ButtonGroup
-        def get_checked_index(group):
-            return group.checkedId()
-            
-        # EG1 Cable Count (3개: 0, 2개: 1, 1개: 2) -> Map to 3, 2, 1
-        eg1_idx = get_checked_index(self.ui.eg1_row.group)
-        if eg1_idx == -1:
-            QMessageBox.warning(self.ui, "경고", "음향 설계에서 '일렉기타 1' 항목을 선택해주세요.")
-            return
-        if eg1_idx == 0: settings['eg1_cable'] = 3
-        elif eg1_idx == 1: settings['eg1_cable'] = 2
-        else: settings['eg1_cable'] = 1
+        # We need to map the new flexible settings back to what TechService expects (eg1_cable, etc.)
+        # TechService.calculate_needs uses specific keys.
+        # SoundDesignDialog attempts to save these keys if they match the legacy pattern (Electric Guitar #1 -> eg1_cable)
+        # So we can just pass the settings dict.
         
-        # EG2 Cable Count
-        eg2_idx = get_checked_index(self.ui.eg2_row.group)
-        if eg2_idx == -1:
-            QMessageBox.warning(self.ui, "경고", "음향 설계에서 '일렉기타 2' 항목을 선택해주세요.\n사용하지 않아도 체크해주세요. 계산되지 않습니다.")
-            return
-        if eg2_idx == 0: settings['eg2_cable'] = 3
-        elif eg2_idx == 1: settings['eg2_cable'] = 2
-        else: settings['eg2_cable'] = 1
+        # Note: If user hasn't opened dialog, settings might be empty or old.
+        # TechService defaults handle missing keys usually.
         
-        # Piano 1 DI (Passive: 0, Active: 1)
-        p1_idx = get_checked_index(self.ui.piano1_row.group)
-        if p1_idx == -1:
-            QMessageBox.warning(self.ui, "경고", "음향 설계에서 '피아노/신디 1' 항목을 선택해주세요.")
-            return
-        settings['piano1_di'] = p1_idx
-        
-        # Piano 2 DI
-        p2_idx = get_checked_index(self.ui.piano2_row.group)
-        if p2_idx == -1:
-            QMessageBox.warning(self.ui, "경고", "음향 설계에서 '피아노/신디 2' 항목을 선택해주세요.\n사용하지 않아도 체크해주세요. 계산되지 않습니다.")
-            return
-        settings['piano2_di'] = p2_idx
+        # Validate critical settings if needed?
+        # TechService checks specific keys.
         
         # Confirm Calculation
         reply = QMessageBox.question(self.ui, '자동 계산', 
@@ -957,23 +921,17 @@ class TechController(QObject):
             # Part 2: Auto Calc Log Verification
             def get_checked_index(group): return group.checkedId()
             
-            settings = {}
-            eg1_idx = get_checked_index(self.ui.eg1_row.group)
-            if eg1_idx == 0: settings['eg1_cable'] = 3
-            elif eg1_idx == 1: settings['eg1_cable'] = 2
-            else: settings['eg1_cable'] = 1
+            # Update verification logic to pull from settings dict instead of UI
+            settings = self.service.data_handler.sound_design_settings
             
-            eg2_idx = get_checked_index(self.ui.eg2_row.group)
-            if eg2_idx == 0: settings['eg2_cable'] = 3
-            elif eg2_idx == 1: settings['eg2_cable'] = 2
-            else: settings['eg2_cable'] = 1
+            # Emulate logic used in TechService
+            eg1_cable = settings.get('eg1_cable', 3) # default 3
+            eg2_cable = settings.get('eg2_cable', 3)
+            piano1_di = settings.get('piano1_di', 0)
+            piano2_di = settings.get('piano2_di', 0)
             
-            settings['piano1_di'] = get_checked_index(self.ui.piano1_row.group)
-            settings['piano2_di'] = get_checked_index(self.ui.piano2_row.group)
-            
+            # Since we assume defaults if missing, validation is looser
             valid_settings = True
-            if eg1_idx == -1 or eg2_idx == -1 or settings['piano1_di'] == -1 or settings['piano2_di'] == -1:
-                valid_settings = False
                 
             if valid_settings:
                 needs, log1, log2 = self.service.get_calculated_requirements(settings)

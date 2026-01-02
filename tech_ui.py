@@ -4,27 +4,6 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTextEdit, QTreeWidget, QTreeWidgetItem, QFrame, QSplitter, QListWidget, QAbstractItemView)
 from PyQt6.QtCore import Qt
 
-class SoundDesignRow(QWidget):
-    def __init__(self, label_text, options, exclusive=True):
-        super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        layout.addWidget(QLabel(label_text))
-        
-        self.group = QButtonGroup(self)
-        self.group.setExclusive(exclusive)
-        
-        for i, opt_text in enumerate(options):
-            if exclusive:
-                btn = QRadioButton(opt_text)
-            else:
-                btn = QCheckBox(opt_text)
-            self.group.addButton(btn, i)
-            layout.addWidget(btn)
-            
-        layout.addStretch()
-
 class TechWidget(QWidget):
     def __init__(self):
         super().__init__()
@@ -45,22 +24,22 @@ class TechWidget(QWidget):
         design_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         design_inner = QVBoxLayout()
         
-        # Hardcoded rows as per PDF
-        # 일렉기타 1 TS 케이블 [ ] 3개 [ ] 2개 [ ] 1개
-        self.eg1_row = SoundDesignRow("일렉기타 1 TS 케이블", ["3개", "2개", "1개"])
-        design_inner.addWidget(self.eg1_row)
-        
-        # 일렉기타 2 TS 케이블 [ ] 3개 [ ] 2개 [ ] 1개
-        self.eg2_row = SoundDesignRow("일렉기타 2 TS 케이블", ["3개", "2개", "1개"])
-        design_inner.addWidget(self.eg2_row)
-        
-        # 피아노/신디 1 [ ] 패시브 DI [ ] 액티브 DI
-        self.piano1_row = SoundDesignRow("피아노/신디 1", ["패시브 DI", "액티브 DI"])
-        design_inner.addWidget(self.piano1_row)
-        
-        # 피아노/신디 2 [ ] 패시브 DI [ ] 액티브 DI
-        self.piano2_row = SoundDesignRow("피아노/신디 2", ["패시브 DI", "액티브 DI"])
-        design_inner.addWidget(self.piano2_row)
+        # New Button to open Sound Design Dialog
+        self.btn_sound_design = QPushButton("음향 설계")
+        self.btn_sound_design.setFixedHeight(70)
+        self.btn_sound_design.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                background-color: #E0E0E0;
+                border: 2px solid #A0A0A0;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #D0D0D0;
+            }
+        """)
+        design_inner.addWidget(self.btn_sound_design)
         
         design_group.setLayout(design_inner)
         left_layout.addWidget(design_group)

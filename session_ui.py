@@ -303,13 +303,36 @@ class SessionTableModel(QAbstractTableModel):
             elif col_type == "SONG":
                 assigned_instruments = []
                 song = next((s for s in self.data_handler.songs if s.id == song_id), None)
+                
                 if song:
-                    for a in self.data_handler.assignments:
-                        if a.song_id == song_id and a.member_id == member.id:
-                            session = next((s for s in song.sessions if s.id == a.session_id), None)
-                            if session:
-                                inst = next((i for i in self.data_handler.instruments if i.id == session.instrument_id), None)
-                                if inst:
+                    # Pre-calculate instrument counts for this song for display logic
+                    inst_counts = {}
+                    for s in song.sessions:
+                        inst_counts[s.instrument_id] = inst_counts.get(s.instrument_id, 0) + 1
+                    
+                    # Track index
+                    inst_current_indices = {} # inst_id -> current_idx
+                    # Need to know WHICH one is assigned to this user.
+                    # Iterate sessions in order
+                    
+                    for session in song.sessions:
+                        # Update index counter
+                        if inst_counts.get(session.instrument_id, 0) > 1:
+                            inst_current_indices[session.instrument_id] = inst_current_indices.get(session.instrument_id, 0) + 1
+                            current_display_idx = inst_current_indices[session.instrument_id]
+                        else:
+                            current_display_idx = 0 # No number
+                            
+                        # Check assignment
+                        assign = next((a for a in self.data_handler.assignments 
+                                       if a.song_id == song.id and a.session_id == session.id and a.member_id == member.id), None)
+                        
+                        if assign:
+                            inst = next((i for i in self.data_handler.instruments if i.id == session.instrument_id), None)
+                            if inst:
+                                if current_display_idx > 0:
+                                    assigned_instruments.append(f"{inst.name} {current_display_idx}")
+                                else:
                                     assigned_instruments.append(inst.name)
                 
                 return "\n".join(assigned_instruments)
