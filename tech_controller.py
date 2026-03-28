@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QTableWidgetItem, QSpinBox, QTreeWidgetItem, QMessa
                              QListWidgetItem, QInputDialog, QFileDialog, QDialog, 
                              QVBoxLayout, QTextEdit, QPushButton, QLabel)
 from PyQt6.QtCore import Qt, QSizeF, QObject, QEvent
-from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout, QColor, QFont, QTextDocument, QPixmap
+from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout, QColor, QFont, QTextDocument, QPixmap, QTextCursor, QTextCharFormat
 from dialogs import CueSheetEditDialog, SoundDesignDialog
 from models import CueSection, Equipment, InstrumentCategory
 import copy
@@ -736,26 +736,30 @@ class TechController(QObject):
             except:
                 pass
             
+            logo_bottom_y = page_height // 2
             if os.path.exists(logo_path):
                 pixmap = QPixmap(logo_path)
                 if not pixmap.isNull():
-                    # Scale logo to fit nicely (max width 1800, keep aspect ratio)
-                    max_logo_w = 1800
+                    # Scale logo 2x bigger (max width 3600)
+                    max_logo_w = 3600
                     if pixmap.width() > max_logo_w:
                         pixmap = pixmap.scaledToWidth(max_logo_w, Qt.TransformationMode.SmoothTransformation)
+                    else:
+                        pixmap = pixmap.scaledToWidth(min(pixmap.width() * 2, max_logo_w), Qt.TransformationMode.SmoothTransformation)
                     
                     logo_x = (page_width - pixmap.width()) // 2
-                    logo_y = (page_height // 2) - pixmap.height()
+                    logo_y = (page_height // 2) - (pixmap.height() // 2) - 80
                     painter.drawPixmap(int(logo_x), int(logo_y), pixmap)
+                    logo_bottom_y = logo_y + pixmap.height()
             
-            # Title text below logo
-            font.setPointSize(base_size + 8)
+            # Title text: centered between logo bottom and page bottom
+            font.setPointSize(base_size + 12)
             font.setBold(True)
             painter.setFont(font)
-            title_y = (page_height // 2) + 200
+            title_y = (logo_bottom_y + page_height) // 2 - line_height
             painter.drawText(0, int(title_y), int(page_width), int(line_height * 3), 
                            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
-                           "어쿠스틱 허브 테크라이더")
+                           "[ 어쿠스틱 허브 테크라이더 ]")
             
             # Reset font
             font.setPointSize(base_size)
@@ -821,17 +825,17 @@ class TechController(QObject):
             num_symbols = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
                            "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"]
 
-            # Content - Songs with numbering
+            # Content - Songs with numbering (tab separated)
+            tab_x = margin + 1200  # Fixed tab stop for instrument column
             for song_idx, song in enumerate(self.service.data_handler.songs):
                 num = num_symbols[song_idx] if song_idx < len(num_symbols) else f"({song_idx+1})"
                 
                 font.setBold(True)
                 painter.setFont(font)
-                song_text = f"{num} {song.title}  "
-                rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, song_text)
-                painter.drawText(int(margin), int(y), int(rect.width()), int(rect.height()), Qt.AlignmentFlag.AlignLeft, song_text)
+                song_text = f"{num} {song.title}"
+                painter.drawText(int(margin), int(y), int(tab_x - margin), int(line_height), Qt.AlignmentFlag.AlignLeft, song_text)
                 
-                # Instruments
+                # Instruments (after tab)
                 font.setBold(False)
                 painter.setFont(font)
                 
@@ -842,9 +846,10 @@ class TechController(QObject):
                         inst_list.append(inst.name)
                 
                 inst_text = ", ".join(inst_list)
+                remaining_w = content_width - (tab_x - margin)
                 
-                text_rect = painter.boundingRect(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
-                painter.drawText(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
+                text_rect = painter.boundingRect(int(tab_x), int(y), int(remaining_w), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
+                painter.drawText(int(tab_x), int(y), int(remaining_w), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
                 
                 y += text_rect.height() + 50
                 
@@ -935,18 +940,25 @@ class TechController(QObject):
                     rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, name_text)
                     painter.drawText(int(margin), int(y), int(rect.width()), int(rect.height()), Qt.AlignmentFlag.AlignLeft, name_text)
                     
-                    # Count + annotation
+                    # Count
                     font.setBold(False)
                     painter.setFont(font)
+                    count_text = f"{needed}개"
+                    count_rect = painter.boundingRect(int(margin + rect.width()), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, count_text)
+                    painter.drawText(int(margin + rect.width()), int(y), int(count_rect.width()), int(count_rect.height()), Qt.AlignmentFlag.AlignLeft, count_text)
                     
+                    # Annotation (blue)
                     annotation = ""
                     if eq.name == "핀마이크·바디팩" and pinmic_instruments:
                         annotation = f"  ← {', '.join(pinmic_instruments)}"
                     elif eq.name in di_inst_map:
                         annotation = f"  ← {', '.join(di_inst_map[eq.name])}"
                     
-                    count_text = f"{needed}개{annotation}"
-                    painter.drawText(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height), Qt.AlignmentFlag.AlignLeft, count_text)
+                    if annotation:
+                        painter.save()
+                        painter.setPen(QColor(0, 0, 255))
+                        painter.drawText(int(margin + rect.width() + count_rect.width()), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, annotation)
+                        painter.restore()
                     
                     y += line_height
                     
@@ -972,7 +984,7 @@ class TechController(QObject):
                         y = margin
 
 
-            # --- 3. 공연 전반 메모 (New Page) ---
+            # --- 3. 큐시트 ---
             writer.newPage()
             y = margin
             
@@ -980,82 +992,88 @@ class TechController(QObject):
             font.setPointSize(base_size + 2)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "3. 공연 전반 메모")
+            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "3. 큐시트")
             y += line_height * 1.5
             
-            # Desc
+            memo_text = self.ui.memo_edit.toPlainText().strip()
+            if memo_text:
+                memo_text = f"전체적으로 {memo_text}"
+                font.setPointSize(base_size)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QColor(255, 0, 0)) # Red
+                
+                rect = painter.boundingRect(int(margin), int(y), int(content_width), int(page_height - y - margin), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, memo_text)
+                painter.drawText(int(margin), int(y), int(content_width), int(page_height - y - margin), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, memo_text)
+                y += rect.height() + line_height
+                
+                painter.setPen(QColor(0, 0, 0))
+            
             font.setPointSize(base_size)
             font.setBold(False)
             painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "공연 전반적으로 이렇게 부탁드릴게요! 🙏✨")
-            y += line_height * 1.5
             
-            # Content (Bold + Blue)
-            font.setBold(True)
-            painter.setFont(font)
-            painter.setPen(QColor(0, 0, 255)) # Blue
+            import json
             
-            memo_text = self.ui.memo_edit.toPlainText()
-            rect = painter.boundingRect(int(margin), int(y), int(content_width), int(page_height - y - margin), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, memo_text)
-            painter.drawText(int(margin), int(y), int(content_width), int(page_height - y - margin), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, memo_text)
-            y += rect.height() + 50
-            
-            painter.setPen(QColor(0, 0, 0)) # Reset to Black
-
-            # --- 4. 곡별 큐시트 ---
-            y += line_height * 2
-            if y > page_height - margin - 300: # Ensure some space for header
-                writer.newPage()
-                y = margin
-
-            # Title
-            font.setPointSize(base_size + 2)
-            font.setBold(True)
-            painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "4. 곡별 큐시트")
-            y += line_height * 1.5
-            
-            # Desc
-            font.setPointSize(base_size)
-            font.setBold(False)
-            painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "곡별 큐시트는 이렇습니다! 잘 부탁드려요! 🎵📝")
-            y += line_height * 2
-            
-            # Iterate Songs
+            # Iterate Songs - each song starts on a new page
             for idx, song in enumerate(self.service.data_handler.songs):
-                # Check space for song header and at least 1 row (approx 500 height)
-                if y > page_height - margin - 500:
+                # Each song starts a new page (except first if memo fits)
+                if idx > 0 or y > margin + line_height * 5:
                     writer.newPage()
                     y = margin
                     
-                # Song Header
+                # Song Header with instruments
+                num = num_symbols[idx] if idx < len(num_symbols) else f"({idx+1})"
                 font.setBold(True)
                 painter.setFont(font)
-                header_text = f"({idx+1}) [{song.title}]"
-                painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, header_text)
-                y += line_height * 1.5
                 
-                # Reference URL
+                # Collect instruments for this song
+                song_inst_list = []
+                for sess in song.sessions:
+                    inst = next((i for i in self.service.data_handler.instruments if i.id == sess.instrument_id), None)
+                    if inst:
+                        song_inst_list.append(inst.name)
+                inst_str = ", ".join(song_inst_list)
+                
+                header_text = f"{num} {song.title}  //  {inst_str}"
+                header_rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height * 3), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, header_text)
+                painter.drawText(int(margin), int(y), int(content_width), int(header_rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, header_text)
+                y += header_rect.height() + line_height * 0.5
+                
+                # Reference URL (normal font size)
                 if song.reference_url:
-                    # Use QTextDocument for HTML link
-                    doc = QTextDocument()
-                    # Apply current font settings (unbold)
-                    font.setBold(False)
-                    painter.setFont(font)
-                    doc.setDefaultFont(font)
-                    
-                    # Create HTML with link
-                    html = f'<a href="{song.reference_url}">참고영상: {song.reference_url}</a>'
-                    doc.setHtml(html)
-                    doc.setTextWidth(content_width)
-                    
                     painter.save()
-                    painter.translate(int(margin), int(y)) 
-                    doc.drawContents(painter)
+                    
+                    # 1. Draw "참고영상: " in black, no underline
+                    font.setBold(False)
+                    font.setUnderline(False)
+                    painter.setFont(font)
+                    painter.setPen(QColor(0, 0, 0))
+                    
+                    prefix_text = "참고영상: "
+                    # Get exact width
+                    prefix_width = painter.fontMetrics().horizontalAdvance(prefix_text)
+                    painter.drawText(int(margin), int(y), int(prefix_width), int(line_height), Qt.AlignmentFlag.AlignLeft, prefix_text)
+                    
+                    # 2. Draw URL string in blue
+                    if song.reference_url.startswith("http://") or song.reference_url.startswith("https://"):
+                        font.setUnderline(True)
+                    painter.setFont(font)
+                    painter.setPen(QColor(0, 0, 255))
+                    
+                    url_x = margin + prefix_width
+                    url_width = content_width - prefix_width
+                    url_rect = painter.boundingRect(int(url_x), int(y), int(url_width), int(line_height * 3), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, song.reference_url)
+                    painter.drawText(int(url_x), int(y), int(url_width), int(url_rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, song.reference_url)
+                    
                     painter.restore()
                     
-                    y += doc.size().height() + line_height * 0.5
+                    # Reset font for next elements
+                    font.setUnderline(False)
+                    painter.setFont(font)
+                    
+                    h = max(line_height, url_rect.height())
+                    y += h + line_height * 0.5
                 
                 # Table Config
                 cols = ["섹션", "세션", "이펙트", "메모"]
@@ -1071,13 +1089,13 @@ class TechController(QObject):
                 row_height = line_height * 1.2
                 
                 painter.save()
-                painter.setBrush(QColor(230, 230, 230)) # Header BG
+                painter.setBrush(QColor(230, 230, 230))
                 painter.drawRect(int(x), int(y), int(content_width), int(row_height))
                 painter.restore()
                 
                 for i, title in enumerate(cols):
-                    painter.drawRect(int(x), int(y), int(col_widths[i]), int(row_height)) # Border
-                    painter.drawText(int(x + 10), int(y), int(col_widths[i] - 20), int(row_height), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+                    painter.drawRect(int(x), int(y), int(col_widths[i]), int(row_height))
+                    painter.drawText(int(x + 10), int(y), int(col_widths[i] - 20), int(row_height), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter, title)
                     x += col_widths[i]
                 
                 y += row_height
@@ -1086,8 +1104,7 @@ class TechController(QObject):
                 font.setBold(False)
                 painter.setFont(font)
                 
-                import json
-                for section in song.cue_sections:
+                for sec_idx, section in enumerate(song.cue_sections):
                     entries = []
                     for note_json in section.instrument_notes.values():
                         try:
@@ -1098,63 +1115,99 @@ class TechController(QObject):
                     if not entries:
                         continue
 
-                    for idx, data in enumerate(entries):
-                        sec_name = section.name if idx == 0 else ""
+                    # Section background color toggle
+                    bg_color = QColor(255, 255, 255) if sec_idx % 2 == 0 else QColor("#D6E4ED")
+                    
+                    section_start_y = y
+
+                    for entry_idx, data in enumerate(entries):
                         inst_name = data.get('instrument_name', '')
                         
                         effect_str = ""
                         if data.get('use_effect', False):
-                            effect_str = f"{data.get('effect_name', '')} {data.get('effect_level_str', '')}"
+                            effect_name = data.get('effect_name', '')
+                            effect_level = data.get('effect_level', 0)
+                            level_symbols = ["①", "②", "③", "④", "⑤"]
+                            if effect_level and 1 <= effect_level <= 5:
+                                level_display = []
+                                for li in range(5):
+                                    if li == effect_level - 1:
+                                        level_display.append("●")
+                                    else:
+                                        level_display.append(level_symbols[li])
+                                effect_str = f"{effect_name} [{' '.join(level_display)}]"
+                            else:
+                                effect_str = effect_name
                             
                         memo = data.get('memo', '')
                         
-                        texts = [sec_name, inst_name, effect_str, memo]
+                        # Note: we only calculate height for 2~4 cols, col 1 is merged visually
+                        texts = ["", inst_name, effect_str, memo]
                     
-                        # Calculate heights
                         max_h = row_height
-                        text_heights = []
-                        
-                        for i, text in enumerate(texts):
-                            rect = painter.boundingRect(0, 0, int(col_widths[i] - 20), 0, Qt.TextFlag.TextWordWrap, text)
-                            h = rect.height() + 20 # Padding
-                            text_heights.append(h)
+                        for i in range(1, 4):
+                            rect = painter.boundingRect(0, 0, int(col_widths[i] - 20), 0, Qt.TextFlag.TextWordWrap, texts[i])
+                            h = rect.height() + 20
                             max_h = max(max_h, h)
                         
-                        # Check page break
+                        # Check page break (overflow within same song)
                         if y + max_h > page_height - margin:
+                            # Complete the section header col 1 for the current page
+                            h_diff = y - section_start_y
+                            if h_diff > 0:
+                                painter.fillRect(int(margin), int(section_start_y), int(col_widths[0]), int(h_diff), bg_color)
+                                painter.drawRect(int(margin), int(section_start_y), int(col_widths[0]), int(h_diff))
+                                painter.save()
+                                f = painter.font()
+                                f.setBold(True)
+                                painter.setFont(f)
+                                painter.setPen(QColor(0, 0, 0))
+                                painter.drawText(int(margin + 10), int(section_start_y), int(col_widths[0] - 20), int(h_diff), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, section.name)
+                                painter.restore()
+
                             writer.newPage()
                             y = margin
+                            section_start_y = y
                         
-                        x = margin
-                        for i, text in enumerate(texts):
-                            painter.drawRect(int(x), int(y), int(col_widths[i]), int(max_h)) # Cell Border
+                        # Draw Row columns 2 to 4
+                        x = margin + col_widths[0]
+                        for i in range(1, 4):
+                            painter.fillRect(int(x), int(y), int(col_widths[i]), int(max_h), bg_color)
+                            painter.drawRect(int(x), int(y), int(col_widths[i]), int(max_h))
                             
                             painter.save()
                             
-                            # Font Style
                             current_font = painter.font()
-                            
-                            # Bold for Section(0), Session(1), Effect(2)
-                            if i in [0, 1, 2] and text:
+                            if i in [1, 2] and texts[i]:
                                 current_font.setBold(True)
                             else:
                                 current_font.setBold(False)
                             painter.setFont(current_font)
                             
-                            # Color for Effect(2)
-                            if i == 2 and text:
-                                painter.setPen(QColor(0, 0, 255)) # Blue
+                            if i == 2 and texts[i]:
+                                painter.setPen(QColor(0, 0, 255))
                             else:
-                                painter.setPen(QColor(0, 0, 0)) # Black
+                                painter.setPen(QColor(0, 0, 0))
                                 
-                            painter.drawText(int(x + 10), int(y + 10), int(col_widths[i] - 20), int(max_h - 20), Qt.TextFlag.TextWordWrap, text)
+                            painter.drawText(int(x + 10), int(y), int(col_widths[i] - 20), int(max_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, texts[i])
                             painter.restore()
                                 
                             x += col_widths[i]
                         
                         y += max_h
-                
-                y += line_height * 2 # Space between songs
+
+                    # Draw Section header col 1 after all entries of section fit in current page
+                    h_diff = y - section_start_y
+                    if h_diff > 0:
+                        painter.fillRect(int(margin), int(section_start_y), int(col_widths[0]), int(h_diff), bg_color)
+                        painter.drawRect(int(margin), int(section_start_y), int(col_widths[0]), int(h_diff))
+                        painter.save()
+                        f = painter.font()
+                        f.setBold(True)
+                        painter.setFont(f)
+                        painter.setPen(QColor(0, 0, 0))
+                        painter.drawText(int(margin + 10), int(section_start_y), int(col_widths[0] - 20), int(h_diff), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, section.name)
+                        painter.restore()
 
             QMessageBox.information(self.ui, "완료", f"테크라이더가 저장되었습니다:\n{filename}")
             
