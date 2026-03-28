@@ -100,7 +100,26 @@ class SongController:
         sess_widget = SessionBoxWidget()
         
         inst_name = self.get_inst_name(session.instrument_id)
-        sess_widget.btn_inst.setText(inst_name)
+        
+        # Count instances of each instrument ID in this song to determine if numbering is needed
+        inst_counts = {}
+        for s in song.sessions:
+            inst_counts[s.instrument_id] = inst_counts.get(s.instrument_id, 0) + 1
+        
+        # Determine display name with numbering if needed (only when 2+ of same instrument)
+        if inst_counts.get(session.instrument_id, 0) > 1:
+            # Calculate this session's index among same instrument sessions
+            same_inst_index = 0
+            for s in song.sessions:
+                if s.instrument_id == session.instrument_id:
+                    same_inst_index += 1
+                    if s.id == session.id:
+                        break
+            display_name = f"{inst_name} {same_inst_index}"
+        else:
+            display_name = inst_name
+        
+        sess_widget.btn_inst.setText(display_name)
         
         # Logic: Label and Options based on Instrument Name (Vocal/Rap vs Others)
         # Assuming "보컬/랩" is the name. ID check is safer but name is used in logic req.
