@@ -857,7 +857,7 @@ class TechController(QObject):
                     writer.newPage()
                     y = margin
 
-            # --- 2. 필요한 장비 (New Page) ---
+            # --- 2. 원하는 악기 연결 방식 (New Page) ---
             writer.newPage()
             y = margin
             
@@ -865,7 +865,132 @@ class TechController(QObject):
             font.setPointSize(base_size + 2)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "2. 필요한 장비")
+            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "2. 원하는 악기 연결 방식")
+            y += line_height * 1.5
+
+            font.setPointSize(base_size)
+            font.setBold(False)
+            painter.setFont(font)
+
+            settings = self.service.data_handler.sound_design_settings
+            conn_map = {} # method_string -> list of instrument strings
+            
+            guitar_family_names = set()
+            for gi in self.service.data_handler.instruments:
+                if gi.category == InstrumentCategory.GUITAR.value and gi.name not in ["일렉기타", "베이스"]:
+                    guitar_family_names.add(gi.name)
+            
+            def get_group_id(inst_name):
+                if inst_name == "보컬/랩": return 0
+                if inst_name == "일렉기타": return 1
+                if inst_name == "베이스": return 2
+                if inst_name in guitar_family_names: return 3
+                if inst_name == "드럼": return 4
+                if inst_name == "카혼": return 5
+                if inst_name == "퍼커션": return 6
+                if inst_name == "디지털 피아노": return 7
+                if inst_name == "신디사이저": return 8
+                return 9
+
+            def get_method_name(inst_name, conn_val):
+                if inst_name == "보컬/랩": return "믹서 직결" if conn_val == 0 else "이펙터-믹서"
+                if inst_name == "일렉기타": return "앰프 마이킹"
+                if inst_name == "베이스": return "이펙터 밸런스아웃"
+                if inst_name in guitar_family_names:
+                    if conn_val == 0: return "이펙터 밸런스아웃"
+                    if conn_val == 1: return "믹서 직결"
+                    if conn_val == 2: return "마이킹"
+                    if conn_val == 3: return "패시브 모노 DI 밸런스 아웃"
+                if inst_name == "드럼": return "마이킹"
+                if inst_name == "카혼":
+                    if conn_val == 0: return "사운드홀(후면) 마이킹, 오버헤드 마이킹(전면, 심벌)"
+                    if conn_val == 1: return "믹서 직결"
+                    if conn_val == 2: return "액티브 모노 DI 밸런스 아웃"
+                if inst_name == "퍼커션": return "마이킹(퀸토/콩가, 봉고, 팀발레스 3개)"
+                if inst_name in ["디지털 피아노", "신디사이저"]:
+                    if conn_val == 0: return "패시브 스테레오 DI 밸런스 아웃"
+                    if conn_val == 1: return "액티브 스테레오 DI 밸런스 아웃"
+                if conn_val == 0: return "SM58 마이킹"
+                if conn_val == 1: return "SM57 마이킹"
+                if conn_val == 2: return "핀마이크·바디팩 사용"
+                if conn_val == 3: return "믹서 직결"
+                if conn_val == 4: return "액티브 모노 DI 밸런스 아웃"
+                return ""
+
+            for inst in self.service.data_handler.instruments:
+                inst_name = inst.name
+                inst_max = max_inst_usage.get(inst_name, 0)
+                if inst_max == 0:
+                    continue
+                
+                gid = get_group_id(inst_name)
+                
+                for i in range(inst_max):
+                    conn = settings.get(f"{inst_name}_{i}_conn", 0)
+                    method_str = get_method_name(inst_name, conn)
+                    
+                    display_name = inst_name if inst_max == 1 else f"{inst_name} {i+1}"
+                    conn_map.setdefault((gid, method_str), []).append(display_name)
+            
+            method_max_usage = {}
+            for song in self.service.data_handler.songs:
+                song_method_counts = {}
+                song_inst_counts = {}
+                for sess in song.sessions:
+                    inst = next((i for i in self.service.data_handler.instruments if i.id == sess.instrument_id), None)
+                    if inst:
+                        song_inst_counts[inst.name] = song_inst_counts.get(inst.name, 0) + 1
+                        
+                for name, count in song_inst_counts.items():
+                    gid = get_group_id(name)
+                    for i in range(count):
+                        conn = settings.get(f"{name}_{i}_conn", 0)
+                        method_str = get_method_name(name, conn)
+                        if method_str:
+                            key = (gid, method_str)
+                            song_method_counts[key] = song_method_counts.get(key, 0) + 1
+                
+                for key, count in song_method_counts.items():
+                    method_max_usage[key] = max(method_max_usage.get(key, 0), count)
+
+            sorted_keys = sorted(conn_map.keys(), key=lambda x: (x[0], x[1]))
+            for key in sorted_keys:
+                method = key[1]
+                insts = conn_map[key]
+                inst_list_str = ", ".join(insts)
+                bold_text = f"[{inst_list_str}]"
+                
+                n = method_max_usage.get(key, 0)
+                if n > 1:
+                    normal_text = f" {method} // 최대 {n}개 악기 동시 사용"
+                else:
+                    normal_text = f" {method}"
+                
+                font.setBold(True)
+                painter.setFont(font)
+                bold_width = painter.fontMetrics().horizontalAdvance(bold_text)
+                painter.drawText(int(margin), int(y), int(bold_width), int(line_height * 3), Qt.AlignmentFlag.AlignLeft, bold_text)
+                
+                font.setBold(False)
+                painter.setFont(font)
+                normal_x = margin + bold_width
+                normal_rect = painter.boundingRect(int(normal_x), int(y), int(content_width - bold_width), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, normal_text)
+                painter.drawText(int(normal_x), int(y), int(content_width - bold_width), int(normal_rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, normal_text)
+                
+                y += max(line_height, normal_rect.height()) + 50
+                if y > page_height - margin:
+                    writer.newPage()
+                    y = margin
+
+            # --- 3. 필요한 장비 (New Page) ---
+            writer.newPage()
+            y = margin
+            
+            # Title
+            font.setPointSize(base_size + 2)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "3. 필요한 장비")
             y += line_height * 1.5
             
             # Pre-check for Drum Mic Set to ask input
@@ -984,7 +1109,7 @@ class TechController(QObject):
                         y = margin
 
 
-            # --- 3. 큐시트 ---
+            # --- 4. 큐시트 ---
             writer.newPage()
             y = margin
             
@@ -992,7 +1117,7 @@ class TechController(QObject):
             font.setPointSize(base_size + 2)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "3. 큐시트")
+            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "4. 큐시트")
             y += line_height * 1.5
             
             memo_text = self.ui.memo_edit.toPlainText().strip()
