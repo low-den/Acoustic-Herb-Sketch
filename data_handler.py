@@ -61,6 +61,7 @@ class DataHandler:
             
             self.filepath = filepath
             self.check_integrity()
+            self.migration_log = self.migrate_data()
             self.add_recent_file(filepath)
             
         except (json.JSONDecodeError, KeyError, Exception) as e:
@@ -110,6 +111,88 @@ class DataHandler:
         
         self.assignments = valid_assignments
 
+    def migrate_data(self):
+        """Migrates data from older versions to the current schema.
+        Returns a list of change descriptions (empty if no changes were made).
+        """
+        changes = []
+
+        # 1. Instruments: Reset connection_type to default 'X'
+        for inst in self.instruments:
+            if hasattr(inst, 'connection_type') and inst.connection_type != ConnectionType.NONE.value:
+                inst.connection_type = ConnectionType.NONE.value
+                if not changes or not any("연결 방식" in c for c in changes):
+                    changes.append("악기 연결 방식 설정이 초기화되었습니다. (음향 설계에서 관리)")
+
+        # 2. Equipment name changes
+        eq_rename_map = {
+            "SM57": "SM57 (악기 마이크)",
+            "일렉 앰프1": "일렉 앰프",
+            "일렉 앰프2": "일렉 앰프",
+        }
+        merged_ids = []  # Track IDs of equipment merged into another
+        for eq in self.equipments:
+            if eq.name in eq_rename_map:
+                new_name = eq_rename_map[eq.name]
+                # Check if target name already exists (for merge case like 앰프1+앰프2 → 앰프)
+                existing = next((e for e in self.equipments if e.name == new_name and e.id != eq.id), None)
+                if existing and eq.name.startswith("일렉 앰프"):
+                    # Merge: add owned_count to existing, mark for removal
+                    existing.owned_count += eq.owned_count
+                    merged_ids.append(eq.id)
+                    changes.append(f"장비 '{eq.name}'이(가) '{new_name}'으로 통합되었습니다.")
+                else:
+                    old_name = eq.name
+                    eq.name = new_name
+                    changes.append(f"장비명 변경: '{old_name}' → '{new_name}'")
+
+        # Remove merged equipment
+        if merged_ids:
+            self.equipments = [e for e in self.equipments if e.id not in merged_ids]
+
+        # 3. Sound design settings: convert legacy keys to new format
+        old_settings = self.sound_design_settings
+        new_settings = {}
+        settings_migrated = False
+
+        legacy_key_map = {
+            'eg1_cable': ('일렉기타_0_conn', self._convert_eg_cable),
+            'eg2_cable': ('일렉기타_1_conn', self._convert_eg_cable),
+            'piano1_di': ('디지털 피아노_0_conn', None),  # 0=패시브, 1=액티브 (same)
+            'piano2_di': ('신디사이저_0_conn', None),     # 0=패시브, 1=액티브 (same)
+        }
+
+        has_legacy_keys = any(k in old_settings for k in legacy_key_map)
+
+        if has_legacy_keys:
+            # Copy non-legacy keys as-is
+            for key, value in old_settings.items():
+                if key not in legacy_key_map:
+                    new_settings[key] = value
+
+            # Convert legacy keys
+            for old_key, (new_key, converter) in legacy_key_map.items():
+                if old_key in old_settings:
+                    old_val = old_settings[old_key]
+                    new_val = converter(old_val) if converter else old_val
+                    new_settings[new_key] = new_val
+                    settings_migrated = True
+
+            if settings_migrated:
+                self.sound_design_settings = new_settings
+                changes.append("음향 설계 설정이 새 형식으로 변환되었습니다.")
+
+        return changes
+
+    @staticmethod
+    def _convert_eg_cable(old_val):
+        """Converts old eg_cable value (3=FxLoop, 2=NoFxLoop, 1=DirectAmp) 
+        to new conn index (0=FxLoop, 1=NoFxLoop, 2=DirectAmp)."""
+        # Old: 0=3개(FxLoop), 1=2개(NoFxLoop), 2=1개(직결)
+        # New: 0=FxLoop, 1=NoFxLoop, 2=기타-앰프
+        # The old radio button index maps directly to new index
+        return old_val
+
     def create_defaults(self):
         # Default Instruments
         defaults_inst = [
@@ -152,8 +235,8 @@ class DataHandler:
 
         # Default Equipment
         default_eqs = [
-            "TS 3m", "TS 5m", "XLR 5m", "SM58 (보컬 마이크)", "SM57", "핀마이크·바디팩", "드럼 마이크 세트",
-            "롱 마이크 스탠드", "숏 마이크 스탠드", "일렉 앰프1", "일렉 앰프2", "베이스 앰프", 
+            "TS 3m", "TS 5m", "XLR 5m", "SM58 (보컬 마이크)", "SM57 (악기 마이크)", "핀마이크·바디팩", "드럼 마이크 세트",
+            "롱 마이크 스탠드", "숏 마이크 스탠드", "일렉 앰프", "베이스 앰프", 
             "패시브 DI 모노", "패시브 DI 스테레오", "액티브 DI 모노", "액티브 DI 스테레오"
         ]
         self.equipments = []

@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QComboBox, QPushButton, QListWidget, QListWidgetItem,
                              QMessageBox, QScrollArea, QWidget, QTreeWidget, QTreeWidgetItem, QFrame, QRadioButton, QButtonGroup, QAbstractItemView, QCheckBox, QTextEdit, QGroupBox, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal
-from models import Member, Grade, MemberInstrument, Instrument, SkillLevel, InstrumentCategory, ConnectionType, Song, SongSession, CueSection, DEFAULT_SECTION_NAMES
+from models import Member, Grade, MemberInstrument, Instrument, SkillLevel, InstrumentCategory, Song, SongSession, CueSection, DEFAULT_SECTION_NAMES
 import uuid
 
 
@@ -56,21 +56,7 @@ class InstrumentEditDialog(QDialog):
         for cat in InstrumentCategory:
             self.combo_cat.addItem(cat.value)
         right_layout.addWidget(self.combo_cat)
-        
-        right_layout.addWidget(QLabel("연결"))
-        self.conn_group = QButtonGroup(self)
-        self.conn_radios = {}
-        
-        conn_layout = QVBoxLayout()
-        for conn in ConnectionType:
-            rb = QRadioButton(conn.value)
-            self.conn_group.addButton(rb)
-            conn_layout.addWidget(rb)
-            self.conn_radios[conn.value] = rb
-        
-        # Default to None (X)
-        self.conn_radios[ConnectionType.NONE.value].setChecked(True)
-        right_layout.addLayout(conn_layout)
+
         
         # Action Buttons
         btn_row = QHBoxLayout()
@@ -114,13 +100,10 @@ class InstrumentEditDialog(QDialog):
         self.current_edit_id = None
         self.edit_name.clear()
         self.combo_cat.setCurrentIndex(0)
-        self.conn_radios[ConnectionType.NONE.value].setChecked(True)
         
         # Enable inputs
         self.edit_name.setEnabled(True)
         self.combo_cat.setEnabled(True)
-        for rb in self.conn_group.buttons():
-            rb.setEnabled(True)
         
         self.btn_add.setText("추가")
         self.btn_add.setEnabled(True)
@@ -139,17 +122,12 @@ class InstrumentEditDialog(QDialog):
         self.current_edit_id = inst.id
         self.edit_name.setText(inst.name)
         self.combo_cat.setCurrentText(inst.category)
-        
-        if inst.connection_type in self.conn_radios:
-            self.conn_radios[inst.connection_type].setChecked(True)
             
         # Check default
         is_default = getattr(inst, 'is_default', False)
         
         self.edit_name.setEnabled(not is_default)
         self.combo_cat.setEnabled(not is_default)
-        for rb in self.conn_group.buttons():
-            rb.setEnabled(not is_default)
             
         if is_default:
             self.btn_add.setText("수정 불가")
@@ -183,20 +161,14 @@ class InstrumentEditDialog(QDialog):
             return
             
         cat = self.combo_cat.currentText()
-        conn = ConnectionType.NONE.value
-        for c, rb in self.conn_radios.items():
-            if rb.isChecked():
-                conn = c
-                break
         
         if self.current_edit_id:
             inst = next((i for i in self.data_handler.instruments if i.id == self.current_edit_id), None)
             if inst:
                 inst.name = name
                 inst.category = cat
-                inst.connection_type = conn
         else:
-            new_inst = Instrument(name=name, category=cat, connection_type=conn)
+            new_inst = Instrument(name=name, category=cat)
             self.data_handler.instruments.append(new_inst)
             
         self.load_instruments()
@@ -961,7 +933,7 @@ class SoundDesignDialog(QDialog):
         inst, index = data
         self.current_key = self.get_settings_key(inst, index)
         
-        # Update Label (Use list item text for consistency)
+        # Update Label
         self.lbl_selected_inst.setText(item.text())
         
         # Clear previous controls
@@ -969,88 +941,97 @@ class SoundDesignDialog(QDialog):
         
         current_val = self.settings.get(self.current_key, -1)
         
-        if inst.name in ["일렉기타", "베이스"]:
-            lbl = QLabel("TS 케이블 필요 개수")
-            self.controls_layout.addWidget(lbl)
-            
-            bg = QButtonGroup(self)
-            
-            rb3 = QRadioButton("3개 (앰프+보드+기타)")
-            rb2 = QRadioButton("2개 (앰프+기타 / 앰프+보드)")
-            rb1 = QRadioButton("1개 (기타 직결)")
-            
-            bg.addButton(rb3, 0)
-            bg.addButton(rb2, 1)
-            bg.addButton(rb1, 2)
-            
-            self.controls_layout.addWidget(rb3)
-            self.controls_layout.addWidget(rb2)
-            self.controls_layout.addWidget(rb1)
-            
-            # Default
-            if current_val != -1:
-                bg.button(current_val).setChecked(True)
-            else:
-                rb3.setChecked(True) # Default 3
-                
-            bg.idClicked.connect(self.update_setting)
-            
-        elif inst.name in ["디지털 피아노", "신디사이저"]:
-            lbl = QLabel("DI 박스 종류")
-            self.controls_layout.addWidget(lbl)
-            
-            bg = QButtonGroup(self)
-            # Options: Passive(0), Active(1)
-            
-            rb_pass = QRadioButton("패시브 DI (기본)")
-            rb_act = QRadioButton("액티브 DI (출력 약할 때)")
-            
-            bg.addButton(rb_pass, 0)
-            bg.addButton(rb_act, 1)
-            
-            self.controls_layout.addWidget(rb_pass)
-            self.controls_layout.addWidget(rb_act)
-            
-            if current_val != -1:
-                bg.button(current_val).setChecked(True)
-            else:
-                rb_pass.setChecked(True)
-                
-            bg.idClicked.connect(self.update_setting)
-            
-        else:
+        options = self._get_connection_options(inst)
+        
+        if not options:
             self.controls_layout.addWidget(QLabel("별도의 음향 설계 설정이 필요하지 않습니다."))
+        else:
+            lbl = QLabel("연결 방식")
+            lbl.setStyleSheet("font-weight: bold;")
+            self.controls_layout.addWidget(lbl)
+            
+            bg = QButtonGroup(self)
+            
+            for idx, (option_text, description) in enumerate(options):
+                rb = QRadioButton(option_text)
+                bg.addButton(rb, idx)
+                self.controls_layout.addWidget(rb)
+                
+                # Description label showing required equipment
+                desc_lbl = QLabel(f"  → {description}")
+                desc_lbl.setStyleSheet("color: gray; font-size: 11px; margin-left: 20px;")
+                self.controls_layout.addWidget(desc_lbl)
+            
+            if current_val != -1 and 0 <= current_val < len(options):
+                bg.button(current_val).setChecked(True)
+            else:
+                bg.button(0).setChecked(True)  # Default: first option
+                
+            bg.idClicked.connect(self.update_setting)
             
         self.right_panel.setCurrentWidget(self.config_page)
 
+    def _get_connection_options(self, inst):
+        """Returns list of (display_text, equipment_description) for the instrument's connection options.
+        
+        Returns empty list for instruments that have only a single fixed connection 
+        method (드럼, 퍼커션) and don't need user configuration.
+        """
+        # Build guitar family set (기타계열 excluding 일렉기타, 베이스)
+        guitar_family_names = set()
+        for i in self.data_handler.instruments:
+            if i.category == InstrumentCategory.GUITAR.value and i.name not in ["일렉기타", "베이스"]:
+                guitar_family_names.add(i.name)
+        
+        if inst.name == "보컬/랩":
+            return [
+                ("믹서 직결", "XLR 5m 1개, 롱 마이크 스탠드 1개"),
+                ("보컬 이펙터", "XLR 5m 2개, 롱 마이크 스탠드 1개"),
+            ]
+        elif inst.name in guitar_family_names:
+            return [
+                ("통기타 이펙터", "TS 3m 1개, XLR 5m 1개"),
+                ("믹서 직결", "TS 5m 1개"),
+                ("마이킹", "XLR 5m 1개"),
+                ("패시브 DI", "패시브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
+            ]
+        elif inst.name == "일렉기타":
+            return [
+                ("기타-이펙터-앰프 (Fx Loop 사용)", "TS 3m 3개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+                ("기타-이펙터-앰프 (Fx Loop 미사용)", "TS 3m 2개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+                ("기타-앰프", "TS 3m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+            ]
+        elif inst.name == "베이스":
+            return [
+                ("기타-이펙터-앰프/믹서", "TS 3m 2개, XLR 5m 1개, 베이스 앰프 1개"),
+                ("기타-이펙터-앰프 마이킹", "TS 3m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 베이스 앰프 1개"),
+            ]
+        elif inst.name in ["디지털 피아노", "신디사이저"]:
+            return [
+                ("패시브 DI", "패시브 DI 스테레오 1개, TS 3m 2개, XLR 5m 2개"),
+                ("액티브 DI", "액티브 DI 스테레오 1개, TS 3m 2개, XLR 5m 2개"),
+            ]
+        elif inst.name == "카혼":
+            return [
+                ("마이킹", "SM57 2개, XLR 5m 2개, 숏 마이크 스탠드 1개,\n롱 마이크 스탠드 1개"),
+                ("픽업-믹서직결", "TS 5m 1개"),
+                ("픽업-DI", "액티브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
+            ]
+        elif inst.name in ["드럼", "퍼커션"]:
+            return []  # Single fixed method, no user choice needed
+        else:
+            # 나머지 모든 악기
+            return [
+                ("SM58 마이킹", "SM58 1개, XLR 5m 1개"),
+                ("SM57 마이킹", "SM57 1개, XLR 5m 1개"),
+                ("핀마이크·바디팩", "핀마이크·바디팩 1개, XLR 5m 1개"),
+                ("픽업-믹서직결", "TS 5m 1개"),
+                ("픽업-DI", "액티브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
+            ]
+
     def get_settings_key(self, inst, index):
-        # Map to legacy keys for specific instruments to keep calculation logic working
-        if inst.name == "일렉기타":
-            if index == 0: return "eg1_cable"
-            if index == 1: return "eg2_cable"
-        if inst.name in ["디지털 피아노", "신디사이저"]: 
-            # Legacy logic used "piano1_di" and "piano2_di" for the first and second piano-type instrument *across the board*.
-            # But here we select individual instruments.
-            # To keep it simple, let's map based on index for now, but this might collide if we have 1 Piano and 1 Synth.
-            # Ideally, TechService should be updated to use unique keys.
-            # For now, let's use unique keys for flexibility, and maybe update TechService later or rely on fallbacks.
-            # Actually, to make "piano1_di" work, we need to know if this is the "1st" piano-like instrument.
-            # But here we are just editing settings.
-            # Let's map Piano #1 -> piano1_di, Piano #2 -> piano2_di
-            # Synth #1 -> piano1_di ?? No, conflict.
-            
-            # Since the user asked for UI changes, I will use unique keys:
-            # {inst.name}_{index}_di
-            # And I will NOT use legacy keys for piano here to avoid confusion.
-            # TechService logic will need to be updated to support this new granularity or fallback.
-            # But wait, TechService currently reads `piano1_di`.
-            # If I save to `Digital Piano_0_config`, TechService won't see it.
-            # The prompt didn't ask to refactor TechService logic yet, but "음향 설계 다이얼로그" logic implies deeper changes.
-            # I will use legacy keys if the name matches exactly for now to minimize breakage for the specific "Default" instruments.
-            pass
-            
-        # Fallback / New Standard
-        return f"{inst.name}_{index}_config"
+        """Generates a settings key in the format '{inst.name}_{index}_conn'."""
+        return f"{inst.name}_{index}_conn"
 
     def clear_layout(self, layout):
         while layout.count():

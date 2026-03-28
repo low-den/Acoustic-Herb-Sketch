@@ -175,15 +175,18 @@ class TechService(QObject):
 
     def get_calculated_requirements(self, settings: dict):
         """
-        Calculates requirements without applying changes.
+        Calculates equipment requirements based on per-instance connection method settings.
+        Each instrument instance (e.g., 일렉기타_0, 일렉기타_1) has its own connection
+        method stored in settings as '{name}_{index}_conn'.
+
         Returns: (needs: dict, log1_lines: list, log2_lines: list)
         """
-        needs = {} # Name -> Count
+        needs = {}  # EquipmentName -> Count
         log1_lines = []
         log2_lines = []
-        
-        # Log 2 Data Structure: { InstrumentName: { 'count': x, 'songs': [titles], 'added_eq': {EqName: count} } }
-        log2_data = {} 
+
+        # Log 2 Data: { InstrumentName: { 'count': x, 'songs': set, 'added_eq': {EqName: count} } }
+        log2_data = {}
 
         def add(name, qty, source_inst=None):
             if qty <= 0: return
@@ -194,276 +197,224 @@ class TechService(QObject):
                 log2_data[source_inst]['added_eq'][name] = log2_data[source_inst]['added_eq'].get(name, 0) + qty
 
         # 1. Calculate Max Simultaneous Usage (x) per Instrument Name
-        max_usage = {} # Name -> Int
-        piano_max_usage = 0
-        
-        inst_songs_map = {} # Name -> Set[SongTitle]
-
-        # Define Piano Group
-        piano_group_names = ["디지털 피아노", "신디사이저"]
+        max_usage = {}  # Name -> Int
+        inst_songs_map = {}  # Name -> Set[SongTitle]
 
         for song in self.data_handler.songs:
-            current_song_counts = {} # Name -> Int
-            current_piano_count = 0
-            
+            current_song_counts = {}  # Name -> Int
+
             for session in song.sessions:
                 inst = next((i for i in self.data_handler.instruments if i.id == session.instrument_id), None)
                 if not inst: continue
-                
+
                 name = inst.name
                 current_song_counts[name] = current_song_counts.get(name, 0) + 1
-                
+
                 if name not in inst_songs_map: inst_songs_map[name] = set()
                 inst_songs_map[name].add(song.title)
-                
-                if name in piano_group_names:
-                    current_piano_count += 1
-            
-            # Update global max per instrument
+
             for name, count in current_song_counts.items():
                 max_usage[name] = max(max_usage.get(name, 0), count)
-            
-            # Update global max for piano group
-            piano_max_usage = max(piano_max_usage, current_piano_count)
 
         # Initialize Log 2 Data with max usage and songs
         for name, x in max_usage.items():
             if x > 0:
-                if name not in log2_data:
-                    log2_data[name] = {'count': x, 'songs': inst_songs_map.get(name, set()), 'added_eq': {}}
-                else:
-                    log2_data[name]['count'] = x
-                    log2_data[name]['songs'] = inst_songs_map.get(name, set())
+                log2_data[name] = {'count': x, 'songs': inst_songs_map.get(name, set()), 'added_eq': {}}
 
-        # 2. Apply Logic based on Max Usage (x)
-        processed_instruments = set() # Names processed by specific rules
+        # 2. Build category sets for instrument classification
+        guitar_family_names = set()  # 기타계열 (excluding 일렉기타, 베이스)
+        for inst in self.data_handler.instruments:
+            if inst.category == InstrumentCategory.GUITAR.value and inst.name not in ["일렉기타", "베이스"]:
+                guitar_family_names.add(inst.name)
 
-        # --- Specific Rules ---
+        # Names handled by specific rules (everything else falls to "나머지")
+        specific_names = {"보컬/랩", "일렉기타", "베이스", "드럼", "카혼", "퍼커션", "디지털 피아노", "신디사이저"}
+        specific_names.update(guitar_family_names)
 
-        # 통기타 (Acoustic Guitar)
-        ag_x = max_usage.get("통기타", 0)
-        if ag_x > 0:
-            processed_instruments.add("통기타")
-            if ag_x == 1:
-                add("TS 5m", 1, "통기타")
-                add("XLR 5m", 1, "통기타")
-            elif ag_x >= 2:
-                add("TS 5m", ag_x, "통기타")
-                add("XLR 5m", ag_x, "통기타")
-                add("패시브 DI 모노", ag_x - 1, "통기타")
-                log1_lines.append("통기타 x>=2일 때: 2개째의 통기타부터는 패시브 DI 모노로 계수했습니다.")
+        processed_instruments = set()
 
-        # 일렉기타 (Electric Guitar)
-        eg_x = max_usage.get("일렉기타", 0)
-        if eg_x > 0:
-            processed_instruments.add("일렉기타")
-            
-            if eg_x >= 3:
-                log1_lines.append("일렉기타 x>=3일 때: 3개째의 일렉기타부터는 계산하지 않았습니다.")
-            
-            # Common parts for EG logic
-            def apply_eg_logic(cable_count, amp_num, source_name):
-                # cable_count: 3, 2, 1 (from settings)
-                # TS 5m +1, XLR 5m+1, SM57 +1, Short Stand +1 are common
-                add("TS 5m", 1, source_name)
-                add("XLR 5m", 1, source_name)
-                add("SM57", 1, source_name)
-                add("숏 마이크 스탠드", 1, source_name)
-                
-                amp_name = f"일렉 앰프{amp_num}"
-                add(amp_name, 1, source_name)
-                
-                if cable_count == 3:
-                    add("TS 3m", 2, source_name)
-                elif cable_count == 2:
-                    add("TS 3m", 1, source_name)
-                # if 1, 0 extra TS 3m
-
-            # EG 1 Logic
-            eg1_setting = settings.get('eg1_cable', 3) 
-            apply_eg_logic(eg1_setting, 1, "일렉기타")
-
-            # EG 2 Logic (Only if x >= 2)
-            if eg_x >= 2:
-                eg2_setting = settings.get('eg2_cable', 3)
-                apply_eg_logic(eg2_setting, 2, "일렉기타")
-
-        # 베이스기타 (Bass Guitar)
-        bass_x = max_usage.get("베이스", 0)
-        if bass_x >= 1:
-            processed_instruments.add("베이스")
-            if bass_x >= 2:
-                log1_lines.append("베이스 x>=2일 때: 2개째의 베이스기타부터는 계산하지 않았습니다.")
-            
-            add("TS 5m", 1, "베이스")
-            add("TS 3m", 1, "베이스")
-            add("XLR 5m", 1, "베이스")
-            add("베이스 앰프", 1, "베이스")
-
-        # 피아노/신디 (Piano Group)
-        piano_key = "피아노/신디"
-        if piano_max_usage > 0:
-            for name in piano_group_names:
-                if name in max_usage: processed_instruments.add(name)
-            
-            # Update Log 2 data manually for grouped instruments
-            songs_union = set()
-            for name in piano_group_names:
-                if name in inst_songs_map:
-                    songs_union.update(inst_songs_map[name])
-            log2_data[piano_key] = {'count': piano_max_usage, 'songs': songs_union, 'added_eq': {}}
-
-            if piano_max_usage >= 3:
-                log1_lines.append("피아노/신디 x>=3일 때: 3개째의 피아노/신디부터는 계산하지 않았습니다.")
-
-            def apply_piano_logic(di_type_idx, source_name):
-                # di_type_idx: 0 (Passive), 1 (Active)
-                add("TS 5m", 2, source_name)
-                add("XLR 5m", 2, source_name)
-                if di_type_idx == 0:
-                    add("패시브 DI 스테레오", 1, source_name)
-                else:
-                    add("액티브 DI 스테레오", 1, source_name)
-
-            # Piano 1 Logic
-            p1_setting = settings.get('piano1_di', 0)
-            apply_piano_logic(p1_setting, piano_key)
-
-            # Piano 2 Logic (Only if x >= 2)
-            if piano_max_usage >= 2:
-                p2_setting = settings.get('piano2_di', 0)
-                apply_piano_logic(p2_setting, piano_key)
-
-        # 드럼 (Drum)
-        drum_x = max_usage.get("드럼", 0)
-        if drum_x > 0:
-            processed_instruments.add("드럼")
-            
-            # Check owned count of Drum Mic Set
-            drum_mic_eq = next((e for e in self.data_handler.equipments if e.name == "드럼 마이크 세트"), None)
-            drum_mic_owned = drum_mic_eq.owned_count if drum_mic_eq else 0
-            
-            if drum_mic_owned == 0:
-                add("드럼 마이크 세트", 1, "드럼")
-                log1_lines.append("드럼 마이크 세트가 없어 롱/숏 마이크 스탠드 필요 개수는 추가하지 않고, 드럼 마이크 세트만 1개 추가했습니다.")
-            else:
-                add("드럼 마이크 세트", 1, "드럼")
-                add("롱 마이크 스탠드", 2, "드럼")
-                add("숏 마이크 스탠드", 1, "드럼")
-                add("XLR 5m", 6, "드럼")
-
-        # 카혼 (Cajon)
-        cajon_x = max_usage.get("카혼", 0)
-        if cajon_x > 0:
-            processed_instruments.add("카혼")
-            add("SM57", 2 * cajon_x, "카혼")
-            add("XLR 5m", 2 * cajon_x, "카혼")
-            add("롱 마이크 스탠드", 1 * cajon_x, "카혼")
-            add("숏 마이크 스탠드", 1 * cajon_x, "카혼")
-
-        # 퍼커션 (Percussion)
-        percussion_x = max_usage.get("퍼커션", 0)
-        if percussion_x > 0:
-            processed_instruments.add("퍼커션")
-            add("SM57", 3, "퍼커션")
-            add("XLR 5m", 3, "퍼커션")
-            add("롱 마이크 스탠드", 3, "퍼커션")
-
-        # 보컬/랩 (Vocal/Rap)
+        # --- 보컬/랩 ---
         vocal_x = max_usage.get("보컬/랩", 0)
         if vocal_x > 0:
             processed_instruments.add("보컬/랩")
-            add("SM58 (보컬 마이크)", vocal_x, "보컬/랩")
-            add("XLR 5m", vocal_x, "보컬/랩")
-            add("롱 마이크 스탠드", vocal_x, "보컬/랩")
+            for i in range(vocal_x):
+                key = f"보컬/랩_{i}_conn"
+                conn = settings.get(key, 0)  # 0: 믹서 직결
+                if conn == 0:  # 믹서 직결
+                    add("XLR 5m", 1, "보컬/랩")
+                    add("롱 마이크 스탠드", 1, "보컬/랩")
+                elif conn == 1:  # 보컬 이펙터
+                    add("XLR 5m", 2, "보컬/랩")
+                    add("롱 마이크 스탠드", 1, "보컬/랩")
 
-        # 핀마이크·바디팩 (Pin Mic/Bodypack) - Wind & String Logic
-        wind_string_inst_names = []
-        for inst in self.data_handler.instruments:
-            if inst.category in [InstrumentCategory.WIND.value, InstrumentCategory.STRING.value]:
-                wind_string_inst_names.append(inst.name)
-        
-        if wind_string_inst_names:
-            max_ws_count = 0
-            ws_songs = set()
-            
-            for song in self.data_handler.songs:
-                # Count wind/string sessions in this song
-                count = 0
-                for sess in song.sessions:
-                    inst = next((i for i in self.data_handler.instruments if i.id == sess.instrument_id), None)
-                    if inst and inst.name in wind_string_inst_names:
-                        count += 1
-                
-                if count > max_ws_count:
-                    max_ws_count = count
-                    ws_songs = {song.title}
-                elif count == max_ws_count and count > 0:
-                    ws_songs.add(song.title)
-            
-            if max_ws_count > 0:
-                # Add to processed to skip general logic
-                for name in wind_string_inst_names:
-                    processed_instruments.add(name)
-                
-                # Add Equipment
-                key = "핀마이크·바디팩"
-                # Initialize log2_data for this virtual key
-                log2_data[key] = {'count': max_ws_count, 'songs': ws_songs, 'added_eq': {}}
-                
-                add("핀마이크·바디팩", max_ws_count, key)
-                add("XLR 5m", max_ws_count, key)
+        # --- 기타계열 (일렉기타, 베이스 제외) ---
+        for gname in guitar_family_names:
+            gx = max_usage.get(gname, 0)
+            if gx > 0:
+                processed_instruments.add(gname)
+                for i in range(gx):
+                    key = f"{gname}_{i}_conn"
+                    conn = settings.get(key, 0)  # 0: 통기타 이펙터
+                    if conn == 0:  # 통기타 이펙터
+                        add("TS 3m", 1, gname)
+                        add("XLR 5m", 1, gname)
+                    elif conn == 1:  # 믹서 직결
+                        add("TS 5m", 1, gname)
+                    elif conn == 2:  # 마이킹
+                        add("XLR 5m", 1, gname)
+                    elif conn == 3:  # 패시브 DI
+                        add("패시브 DI 모노", 1, gname)
+                        add("TS 3m", 1, gname)
+                        add("XLR 5m", 1, gname)
 
-        # --- General Logic (Fallback based on Connection Type) ---
+        # --- 일렉기타 ---
+        eg_x = max_usage.get("일렉기타", 0)
+        if eg_x > 0:
+            processed_instruments.add("일렉기타")
+            if eg_x >= 3:
+                log1_lines.append("일렉기타 3개 이상: 3개째의 일렉기타부터는 앰프를 추가하지 않았습니다.")
+
+            for i in range(eg_x):
+                key = f"일렉기타_{i}_conn"
+                conn = settings.get(key, 0)  # 0: Fx Loop 사용
+                if conn == 0:  # 기타-이펙터-앰프 (Fx Loop 사용)
+                    add("TS 3m", 3, "일렉기타")
+                elif conn == 1:  # 기타-이펙터-앰프 (Fx Loop 미사용)
+                    add("TS 3m", 2, "일렉기타")
+                elif conn == 2:  # 기타-앰프
+                    add("TS 3m", 1, "일렉기타")
+
+                add("XLR 5m", 1, "일렉기타")
+                add("SM57 (악기 마이크)", 1, "일렉기타")
+                add("숏 마이크 스탠드", 1, "일렉기타")
+
+                # Amp
+                if i < 2:
+                    add("일렉 앰프", 1, "일렉기타")
+
+        # --- 베이스 ---
+        bass_x = max_usage.get("베이스", 0)
+        if bass_x > 0:
+            processed_instruments.add("베이스")
+            if bass_x >= 2:
+                log1_lines.append("베이스 2개 이상: 2개째의 베이스부터는 앰프를 추가하지 않았습니다.")
+
+            for i in range(bass_x):
+                key = f"베이스_{i}_conn"
+                conn = settings.get(key, 0)  # 0: 이펙터-앰프/믹서
+                if conn == 0:  # 기타-이펙터-앰프/믹서
+                    add("TS 3m", 2, "베이스")
+                    add("XLR 5m", 1, "베이스")
+                elif conn == 1:  # 기타-이펙터-앰프 마이킹
+                    add("TS 3m", 1, "베이스")
+                    add("XLR 5m", 1, "베이스")
+                    add("SM57 (악기 마이크)", 1, "베이스")
+                    add("숏 마이크 스탠드", 1, "베이스")
+
+                # Amp (1개만)
+                if i < 1:
+                    add("베이스 앰프", 1, "베이스")
+
+        # --- 디지털 피아노 ---
+        dp_x = max_usage.get("디지털 피아노", 0)
+        if dp_x > 0:
+            processed_instruments.add("디지털 피아노")
+            for i in range(dp_x):
+                key = f"디지털 피아노_{i}_conn"
+                conn = settings.get(key, 0)  # 0: 패시브DI
+                if conn == 0:  # 패시브DI
+                    add("패시브 DI 스테레오", 1, "디지털 피아노")
+                elif conn == 1:  # 액티브DI
+                    add("액티브 DI 스테레오", 1, "디지털 피아노")
+                add("TS 3m", 2, "디지털 피아노")
+                add("XLR 5m", 2, "디지털 피아노")
+
+        # --- 신디사이저 ---
+        synth_x = max_usage.get("신디사이저", 0)
+        if synth_x > 0:
+            processed_instruments.add("신디사이저")
+            for i in range(synth_x):
+                key = f"신디사이저_{i}_conn"
+                conn = settings.get(key, 0)  # 0: 패시브DI
+                if conn == 0:  # 패시브DI
+                    add("패시브 DI 스테레오", 1, "신디사이저")
+                elif conn == 1:  # 액티브DI
+                    add("액티브 DI 스테레오", 1, "신디사이저")
+                add("TS 3m", 2, "신디사이저")
+                add("XLR 5m", 2, "신디사이저")
+
+        # --- 드럼 ---
+        drum_x = max_usage.get("드럼", 0)
+        if drum_x > 0:
+            processed_instruments.add("드럼")
+            add("드럼 마이크 세트", 1, "드럼")
+            add("숏 마이크 스탠드", 1, "드럼")
+            add("롱 마이크 스탠드", 2, "드럼")
+            add("XLR 5m", 6, "드럼")
+
+        # --- 카혼 ---
+        cajon_x = max_usage.get("카혼", 0)
+        if cajon_x > 0:
+            processed_instruments.add("카혼")
+            for i in range(cajon_x):
+                key = f"카혼_{i}_conn"
+                conn = settings.get(key, 0)  # 0: 마이킹
+                if conn == 0:  # 마이킹
+                    add("SM57 (악기 마이크)", 2, "카혼")
+                    add("XLR 5m", 2, "카혼")
+                    add("숏 마이크 스탠드", 1, "카혼")
+                    add("롱 마이크 스탠드", 1, "카혼")
+                elif conn == 1:  # 픽업-믹서직결
+                    add("TS 5m", 1, "카혼")
+                elif conn == 2:  # 픽업-DI
+                    add("액티브 DI 모노", 1, "카혼")
+                    add("TS 3m", 1, "카혼")
+                    add("XLR 5m", 1, "카혼")
+
+        # --- 퍼커션 ---
+        perc_x = max_usage.get("퍼커션", 0)
+        if perc_x > 0:
+            processed_instruments.add("퍼커션")
+            add("SM57 (악기 마이크)", 3, "퍼커션")
+            add("XLR 5m", 3, "퍼커션")
+            add("롱 마이크 스탠드", 3, "퍼커션")
+
+        # --- 나머지 모든 악기 ---
         for name, x in max_usage.items():
             if name in processed_instruments:
                 continue
-            if name in piano_group_names: continue # Already handled
-            
-            inst = next((i for i in self.data_handler.instruments if i.name == name), None)
-            if not inst: continue
 
-            # Initialize log data if not exists
-            if name not in log2_data:
-                log2_data[name] = {'count': x, 'songs': inst_songs_map.get(name, set()), 'added_eq': {}}
-
-            # Check Connection Type (Fallback)
-            ctype = inst.connection_type
-            if ctype == ConnectionType.TS_ACTIVE.value:
-                add("TS 5m", x, name)
-                add("XLR 5m", x, name)
-                add("패시브 DI 모노", x, name)
-            elif ctype == ConnectionType.TS_PASSIVE.value:
-                add("TS 5m", x, name)
-                add("XLR 5m", x, name)
-                add("액티브 DI 모노", x, name)
-            elif ctype == ConnectionType.BALANCED.value: # XLR
-                add("XLR 5m", x, name)
-            elif ctype == ConnectionType.NONE.value: # X
-                add("XLR 5m", x, name)
-                add("SM57", x, name)
-                add("롱 마이크 스탠드", x, name)
+            for i in range(x):
+                key = f"{name}_{i}_conn"
+                conn = settings.get(key, 0)  # 0: SM58 마이킹
+                if conn == 0:  # SM58 마이킹
+                    add("SM58 (보컬 마이크)", 1, name)
+                    add("XLR 5m", 1, name)
+                elif conn == 1:  # SM57 마이킹
+                    add("SM57 (악기 마이크)", 1, name)
+                    add("XLR 5m", 1, name)
+                elif conn == 2:  # 핀마이크·바디팩
+                    add("핀마이크·바디팩", 1, name)
+                    add("XLR 5m", 1, name)
+                elif conn == 3:  # 픽업-믹서직결
+                    add("TS 5m", 1, name)
+                elif conn == 4:  # 픽업-DI
+                    add("액티브 DI 모노", 1, name)
+                    add("TS 3m", 1, name)
+                    add("XLR 5m", 1, name)
 
         # Prepare Log 2 Lines
         for inst_name, data in log2_data.items():
-            # Skip individual piano parts as they are merged into "피아노/신디"
-            if inst_name in ["디지털 피아노", "신디사이저"]:
-                continue
-            
-            # Skip wind/string instruments as they are merged into "핀마이크·바디팩"
-            if inst_name in wind_string_inst_names:
-                continue
-
-            if data['count'] > 0:
+            if data['count'] > 0 and data.get('added_eq'):
                 songs_str = ", ".join(sorted(list(data['songs'])))
                 added_eq_str_list = []
                 for eq_name, count in data['added_eq'].items():
                     added_eq_str_list.append(f"{eq_name}")
                 added_eq_str = ", ".join(added_eq_str_list)
-                
+
                 line = f"[{inst_name}] {data['count']}개\n곡: {songs_str}\n   → {added_eq_str}"
                 log2_lines.append(line)
-        
+
         return needs, log1_lines, log2_lines
 
     def calculate_needs(self, settings: dict):

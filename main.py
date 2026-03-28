@@ -276,6 +276,14 @@ class MainWindow(QMainWindow):
             self.set_project_loaded(True)
             self.undo_stack.clear()
             self.undo_stack.setClean()
+            
+            # Show migration message if data was updated
+            if hasattr(self.data_handler, 'migration_log') and self.data_handler.migration_log:
+                changes_text = "\n".join(f"• {c}" for c in self.data_handler.migration_log)
+                QMessageBox.information(
+                    self, "프로젝트 최신화",
+                    f"이전 버전의 프로젝트 파일을 최신화합니다.\n\n{changes_text}\n\n저장하면 변경사항이 반영됩니다."
+                )
         except Exception as e:
             QMessageBox.critical(self, "오류", f"파일 불러오기 실패: {str(e)}")
 
