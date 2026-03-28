@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QTableWidgetItem, QSpinBox, QTreeWidgetItem, QMessa
                              QListWidgetItem, QInputDialog, QFileDialog, QDialog, 
                              QVBoxLayout, QTextEdit, QPushButton, QLabel)
 from PyQt6.QtCore import Qt, QSizeF, QObject, QEvent
-from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout, QColor, QFont, QTextDocument
+from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize, QPageLayout, QColor, QFont, QTextDocument, QPixmap
 from dialogs import CueSheetEditDialog, SoundDesignDialog
 from models import CueSection, Equipment, InstrumentCategory
 import copy
@@ -707,6 +707,7 @@ class TechController(QObject):
 
         writer = QPdfWriter(filename)
         writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        writer.setPageOrientation(QPageLayout.Orientation.Landscape)
         writer.setResolution(300) # 300 DPI for high quality
         
         painter = QPainter(writer)
@@ -715,32 +716,65 @@ class TechController(QObject):
             # Constants for layout
             page_width = writer.width()
             page_height = writer.height()
-            margin = 300 # 1 inch approx at 300dpi is 300
+            margin = 120 # Very narrow margin
             content_width = page_width - (2 * margin)
             
             y = margin
             line_height = 100
             
-            font = painter.font()
+            # Set font to 돋움
+            font = QFont("돋움")
+            font.setPointSize(10)
+            painter.setFont(font)
             base_size = font.pointSize()
             
-            # --- 1. 곡별 사용 악기 ---
+            # --- Cover Page ---
+            # Logo
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+            try:
+                logo_path = self.ui.window().get_resource_path("logo.png")
+            except:
+                pass
+            
+            if os.path.exists(logo_path):
+                pixmap = QPixmap(logo_path)
+                if not pixmap.isNull():
+                    # Scale logo to fit nicely (max width 1800, keep aspect ratio)
+                    max_logo_w = 1800
+                    if pixmap.width() > max_logo_w:
+                        pixmap = pixmap.scaledToWidth(max_logo_w, Qt.TransformationMode.SmoothTransformation)
+                    
+                    logo_x = (page_width - pixmap.width()) // 2
+                    logo_y = (page_height // 2) - pixmap.height()
+                    painter.drawPixmap(int(logo_x), int(logo_y), pixmap)
+            
+            # Title text below logo
+            font.setPointSize(base_size + 8)
+            font.setBold(True)
+            painter.setFont(font)
+            title_y = (page_height // 2) + 200
+            painter.drawText(0, int(title_y), int(page_width), int(line_height * 3), 
+                           Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
+                           "어쿠스틱 허브 테크라이더")
+            
+            # Reset font
+            font.setPointSize(base_size)
+            font.setBold(False)
+            painter.setFont(font)
+            
+            # --- 1. 곡 순서 및 악기 (New Page) ---
+            writer.newPage()
+            y = margin
+            
             # Title
             font.setPointSize(base_size + 2)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "1. 곡별 사용 악기")
-            y += line_height * 1.5
-            
-            # Desc
-            font.setPointSize(base_size)
-            font.setBold(False)
-            painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "곡별로 이런 악기들을 사용합니다! 🎸🎹")
+            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "1. 곡 순서 및 악기")
             y += line_height * 1.5
             
             # [전체] Summary
-            # Calculate max usage per instrument
+            font.setPointSize(base_size)
             max_inst_usage = {}
             for song in self.service.data_handler.songs:
                 current_counts = {}
@@ -762,20 +796,15 @@ class TechController(QObject):
                 InstrumentCategory.ETC.value: 5
             }
             
-            summary_items = [] # (sort_index, instrument_name, count)
-
+            summary_items = []
             for name, count in max_inst_usage.items():
                 if count > 0:
-                    # Find instrument object to get category
                     inst_obj = next((i for i in self.service.data_handler.instruments if i.name == name), None)
                     cat_name = inst_obj.category if inst_obj else InstrumentCategory.ETC.value
                     sort_idx = category_order.get(cat_name, 99)
-                    
                     summary_items.append((sort_idx, name, count))
 
-            # Sort: Primary=Category, Secondary=Name
             summary_items.sort(key=lambda x: (x[0], x[1]))
-            
             summary_list = [f"{item[1]} {item[2]}개" for item in summary_items]
             
             if summary_list:
@@ -788,12 +817,17 @@ class TechController(QObject):
                 
                 y += rect.height() + 50
 
-            # Content
-            for song in self.service.data_handler.songs:
-                # [Song Name]
+            # Numbering symbols
+            num_symbols = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+                           "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"]
+
+            # Content - Songs with numbering
+            for song_idx, song in enumerate(self.service.data_handler.songs):
+                num = num_symbols[song_idx] if song_idx < len(num_symbols) else f"({song_idx+1})"
+                
                 font.setBold(True)
                 painter.setFont(font)
-                song_text = f"[{song.title}] "
+                song_text = f"{num} {song.title}  "
                 rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, song_text)
                 painter.drawText(int(margin), int(y), int(rect.width()), int(rect.height()), Qt.AlignmentFlag.AlignLeft, song_text)
                 
@@ -801,7 +835,6 @@ class TechController(QObject):
                 font.setBold(False)
                 painter.setFont(font)
                 
-                # Collect instruments for this song in order
                 inst_list = []
                 for sess in song.sessions:
                     inst = next((i for i in self.service.data_handler.instruments if i.id == sess.instrument_id), None)
@@ -810,7 +843,6 @@ class TechController(QObject):
                 
                 inst_text = ", ".join(inst_list)
                 
-                # Draw instruments after song title, wrap if needed
                 text_rect = painter.boundingRect(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
                 painter.drawText(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, inst_text)
                 
@@ -831,14 +863,8 @@ class TechController(QObject):
             painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "2. 필요한 장비")
             y += line_height * 1.5
             
-            # Desc
-            font.setPointSize(base_size)
-            font.setBold(False)
-            painter.setFont(font)
-            painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "이런 장비들이 필요합니다! 🔌🎤")
-            y += line_height * 1.5
-            
             # Pre-check for Drum Mic Set to ask input
+            font.setPointSize(base_size)
             crash_cymbal_count = 0
             drum_mic_needed_flag = False
             for eq in self.service.data_handler.equipments:
@@ -852,57 +878,91 @@ class TechController(QObject):
                                               value=2, min=0, max=20)
                 if ok:
                     crash_cymbal_count = val
+
+            # Build instrument usage map for DI/핀마이크 annotations
+            settings = self.service.data_handler.sound_design_settings
+            di_inst_map = {}  # eq_name -> list of instrument names
+            pinmic_instruments = []
+            
+            for inst in self.service.data_handler.instruments:
+                inst_name = inst.name
+                # Check max usage
+                inst_max = max_inst_usage.get(inst_name, 0)
+                if inst_max == 0:
+                    continue
+                    
+                for i in range(inst_max):
+                    key = f"{inst_name}_{i}_conn"
+                    conn = settings.get(key, 0)
+                    
+                    # Check guitar family for 패시브 DI
+                    guitar_family_names = set()
+                    for gi in self.service.data_handler.instruments:
+                        if gi.category == InstrumentCategory.GUITAR.value and gi.name not in ["일렉기타", "베이스"]:
+                            guitar_family_names.add(gi.name)
+                    
+                    if inst_name in guitar_family_names and conn == 3:
+                        di_inst_map.setdefault("패시브 DI 모노", []).append(inst_name)
+                    elif inst_name in ["디지털 피아노", "신디사이저"]:
+                        if conn == 0:
+                            di_inst_map.setdefault("패시브 DI 스테레오", []).append(inst_name)
+                        elif conn == 1:
+                            di_inst_map.setdefault("액티브 DI 스테레오", []).append(inst_name)
+                    elif inst_name == "카혼" and conn == 2:
+                        di_inst_map.setdefault("액티브 DI 모노", []).append(inst_name)
+                    # 나머지 악기
+                    elif inst_name not in ["보컬/랩", "일렉기타", "베이스", "드럼", "퍼커션", "카혼"] \
+                         and inst_name not in guitar_family_names \
+                         and inst_name not in ["디지털 피아노", "신디사이저"]:
+                        if conn == 2:  # 핀마이크·바디팩
+                            if inst_name not in pinmic_instruments:
+                                pinmic_instruments.append(inst_name)
+                        elif conn == 4:  # 픽업-DI
+                            di_inst_map.setdefault("액티브 DI 모노", []).append(inst_name)
             
             # Content
+            font.setBold(False)
+            painter.setFont(font)
+            
             for eq in self.service.data_handler.equipments:
                 needed = eq.required_count - eq.owned_count
                 if needed > 0:
                     # [Eq Name]
                     font.setBold(True)
                     painter.setFont(font)
-                    painter.setPen(QColor(0, 0, 0)) # Ensure Black
+                    painter.setPen(QColor(0, 0, 0))
                     name_text = f"[{eq.name}] "
                     rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, name_text)
                     painter.drawText(int(margin), int(y), int(rect.width()), int(rect.height()), Qt.AlignmentFlag.AlignLeft, name_text)
                     
-                    # Count
+                    # Count + annotation
                     font.setBold(False)
                     painter.setFont(font)
-                    count_text = f"{needed}개"
-                    painter.drawText(int(margin + rect.width()), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, count_text)
+                    
+                    annotation = ""
+                    if eq.name == "핀마이크·바디팩" and pinmic_instruments:
+                        annotation = f"  ← {', '.join(pinmic_instruments)}"
+                    elif eq.name in di_inst_map:
+                        annotation = f"  ← {', '.join(di_inst_map[eq.name])}"
+                    
+                    count_text = f"{needed}개{annotation}"
+                    painter.drawText(int(margin + rect.width()), int(y), int(content_width - rect.width()), int(line_height), Qt.AlignmentFlag.AlignLeft, count_text)
                     
                     y += line_height
                     
                     # Drum Mic Note
                     if eq.name == "드럼 마이크 세트":
-                        y -= line_height * 0.2 # Reduce gap
+                        y -= line_height * 0.2
                         
-                        drum_note = f"* 드럼은 기본 5기통에 크래시 심벌 {crash_cymbal_count}개, 라이드 심벌 1개, 하이햇 심벌을 사용합니다!\n드럼 마이크에 사용할 스탠드 및 케이블은 편하신대로 따로 계산해서 가져와주시면 감사하겠습니다!"
+                        drum_note = f"* 드럼은 기본 5기통에 크래시 심벌 {crash_cymbal_count}개, 라이드 심벌 1개, 하이햇 심벌을 사용합니다!"
                         
                         painter.save()
                         font.setBold(False)
                         painter.setFont(font)
-                        painter.setPen(QColor(0, 0, 255)) # Blue
+                        painter.setPen(QColor(0, 0, 255))
                         
                         note_rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, drum_note)
                         painter.drawText(int(margin), int(y), int(content_width), int(note_rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, drum_note)
-                        
-                        y += note_rect.height() + line_height * 0.5
-                        painter.restore()
-
-                    # Pin Mic Note
-                    elif eq.name == "핀마이크·바디팩":
-                        y -= line_height * 0.2 # Reduce gap
-                        
-                        pin_note = "* 핀마이크·바디팩은 관현악기에 사용하고 싶습니다!"
-                        
-                        painter.save()
-                        font.setBold(False)
-                        painter.setFont(font)
-                        painter.setPen(QColor(0, 0, 255)) # Blue
-                        
-                        note_rect = painter.boundingRect(int(margin), int(y), int(content_width), int(line_height * 10), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, pin_note)
-                        painter.drawText(int(margin), int(y), int(content_width), int(note_rect.height()), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, pin_note)
                         
                         y += note_rect.height() + line_height * 0.5
                         painter.restore()
@@ -911,61 +971,6 @@ class TechController(QObject):
                         writer.newPage()
                         y = margin
 
-            # Part 2: Auto Calc Log Verification
-            def get_checked_index(group): return group.checkedId()
-            
-            # Update verification logic to pull from settings dict instead of UI
-            settings = self.service.data_handler.sound_design_settings
-            
-            # Emulate logic used in TechService
-            eg1_cable = settings.get('eg1_cable', 3) # default 3
-            eg2_cable = settings.get('eg2_cable', 3)
-            piano1_di = settings.get('piano1_di', 0)
-            piano2_di = settings.get('piano2_di', 0)
-            
-            # Since we assume defaults if missing, validation is looser
-            valid_settings = True
-                
-            if valid_settings:
-                needs, log = self.service.get_calculated_requirements(settings)
-                
-                # Check if matches current data
-                matches = True
-                for eq in self.service.data_handler.equipments:
-                    calc_val = needs.get(eq.name, 0)
-                    if eq.required_count != calc_val:
-                        matches = False
-                        break
-                        
-                if matches and log:
-                    y += line_height * 2
-                    
-                    # Estimate height
-                    font.setBold(True)
-                    painter.setFont(font)
-                    title_h = line_height
-                    
-                    font.setBold(False)
-                    painter.setFont(font)
-                    log_text = "\n\n".join(log)
-                    rect = painter.boundingRect(int(margin), 0, int(content_width), 0, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, log_text)
-                    content_h = rect.height()
-                    
-                    if y + title_h + content_h > page_height - margin:
-                        writer.newPage()
-                        y = margin
-                        
-                    # Draw Log 2 Title
-                    font.setBold(True)
-                    painter.setFont(font)
-                    painter.drawText(int(margin), int(y), int(content_width), int(line_height), Qt.AlignmentFlag.AlignLeft, "필요한 장비 상세")
-                    y += line_height * 1.5
-                    
-                    # Draw Log 2 Content
-                    font.setBold(False)
-                    painter.setFont(font)
-                    painter.drawText(int(margin), int(y), int(content_width), int(content_h), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, log_text)
-                    y += content_h + 50
 
             # --- 3. 공연 전반 메모 (New Page) ---
             writer.newPage()
