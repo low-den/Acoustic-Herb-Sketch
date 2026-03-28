@@ -943,8 +943,13 @@ class SoundDesignDialog(QDialog):
         
         options = self._get_connection_options(inst)
         
-        if not options:
-            self.controls_layout.addWidget(QLabel("별도의 음향 설계 설정이 필요하지 않습니다."))
+        if options is None:
+            # Fixed equipment instruments (드럼, 퍼커션) - show info message
+            info_text = self._get_fixed_info(inst)
+            info_lbl = QLabel(info_text)
+            info_lbl.setWordWrap(True)
+            info_lbl.setStyleSheet("color: #555; font-size: 12px; line-height: 1.5;")
+            self.controls_layout.addWidget(info_lbl)
         else:
             lbl = QLabel("연결 방식")
             lbl.setStyleSheet("font-weight: bold;")
@@ -985,26 +990,26 @@ class SoundDesignDialog(QDialog):
         
         if inst.name == "보컬/랩":
             return [
-                ("믹서 직결", "XLR 5m 1개, 롱 마이크 스탠드 1개"),
-                ("보컬 이펙터", "XLR 5m 2개, 롱 마이크 스탠드 1개"),
+                ("믹서 직결", "SM58 1개, XLR 5m 1개, 롱 마이크 스탠드 1개"),
+                ("보컬 이펙터", "SM58 1개, XLR 5m 2개, 롱 마이크 스탠드 1개"),
             ]
         elif inst.name in guitar_family_names:
             return [
-                ("통기타 이펙터", "TS 3m 1개, XLR 5m 1개"),
+                ("통기타 이펙터", "TS 5m 1개, XLR 5m 1개"),
                 ("믹서 직결", "TS 5m 1개"),
-                ("마이킹", "XLR 5m 1개"),
-                ("패시브 DI", "패시브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
+                ("마이킹", "SM57 1개, XLR 5m 1개"),
+                ("패시브 DI", "패시브 DI 모노 1개, TS 5m 1개, XLR 5m 1개"),
             ]
         elif inst.name == "일렉기타":
             return [
-                ("기타-이펙터-앰프 (Fx Loop 사용)", "TS 3m 3개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
-                ("기타-이펙터-앰프 (Fx Loop 미사용)", "TS 3m 2개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
-                ("기타-앰프", "TS 3m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+                ("기타-이펙터-앰프 (Fx Loop 사용)", "TS 3m 2개, TS 5m 1개, XLR 5m 1개,\nSM57 1개, 숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+                ("기타-이펙터-앰프 (Fx Loop 미사용)", "TS 3m 1개, TS 5m 1개, XLR 5m 1개,\nSM57 1개, 숏 마이크 스탠드 1개, 일렉 앰프 1개"),
+                ("기타-앰프", "TS 5m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 일렉 앰프 1개"),
             ]
         elif inst.name == "베이스":
             return [
-                ("기타-이펙터-앰프/믹서", "TS 3m 2개, XLR 5m 1개, 베이스 앰프 1개"),
-                ("기타-이펙터-앰프 마이킹", "TS 3m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 베이스 앰프 1개"),
+                ("기타-이펙터-앰프/믹서", "TS 3m 1개, TS 5m 1개, XLR 5m 1개,\n베이스 앰프 1개"),
+                ("기타-이펙터-앰프 마이킹", "TS 5m 1개, XLR 5m 1개, SM57 1개,\n숏 마이크 스탠드 1개, 베이스 앰프 1개"),
             ]
         elif inst.name in ["디지털 피아노", "신디사이저"]:
             return [
@@ -1017,8 +1022,10 @@ class SoundDesignDialog(QDialog):
                 ("픽업-믹서직결", "TS 5m 1개"),
                 ("픽업-DI", "액티브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
             ]
-        elif inst.name in ["드럼", "퍼커션"]:
-            return []  # Single fixed method, no user choice needed
+        elif inst.name == "드럼":
+            return None  # Fixed method, show info instead
+        elif inst.name == "퍼커션":
+            return None  # Fixed method, show info instead
         else:
             # 나머지 모든 악기
             return [
@@ -1028,6 +1035,32 @@ class SoundDesignDialog(QDialog):
                 ("픽업-믹서직결", "TS 5m 1개"),
                 ("픽업-DI", "액티브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),
             ]
+
+    def _get_fixed_info(self, inst):
+        """Returns descriptive info text for instruments with fixed equipment (드럼, 퍼커션)."""
+        if inst.name == "드럼":
+            return (
+                "자동계산 로직에 아래와 같은 장비가 추가됩니다.\n"
+                "드럼 마이크 세트 1개, 숏 마이크 스탠드 1개,\n"
+                "롱 마이크 스탠드 2개, XLR 5m 6개\n\n"
+                "이는 킥 드럼 마이크 1개, 스네어/탐 마이크 3개,\n"
+                "오버헤드 마이크 2개, 킥 마이크를 위한 숏 스탠드 1개,\n"
+                "오버헤드 마이크를 위한 롱 스탠드 2개 및\n"
+                "필요한 케이블입니다.\n\n"
+                "세부 조정하고 싶다면 자동계산 이후\n"
+                "수동으로 수정해주세요."
+            )
+        elif inst.name == "퍼커션":
+            return (
+                "자동계산 로직에 아래와 같은 장비가 추가됩니다.\n"
+                "SM57 (악기 마이크) 3개, XLR 5m 3개,\n"
+                "롱 마이크 스탠드 3개\n\n"
+                "이는 콩가, 봉고, 팀발레스 3개 악기 기준으로\n"
+                "각 1개씩 배치한 결과입니다.\n\n"
+                "세부 조정하고 싶다면 자동계산 이후\n"
+                "수동으로 수정해주세요."
+            )
+        return ""
 
     def get_settings_key(self, inst, index):
         """Generates a settings key in the format '{inst.name}_{index}_conn'."""

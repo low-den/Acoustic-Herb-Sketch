@@ -648,22 +648,15 @@ class TechController(QObject):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        success, log1, log2 = self.service.calculate_needs(settings)
+        success, log = self.service.calculate_needs(settings)
         
         if success:
-            # Show Log 1
-            if log1:
-                log1_msg = "\n".join(log1)
-                QMessageBox.information(self.ui, "계산 알림 (1/2)", f"다음과 같은 예외 사항이 적용되었습니다:\n\n{log1_msg}")
-            else:
-                QMessageBox.information(self.ui, "계산 알림 (1/2)", "특이 사항 없이 계산되었습니다.")
-                
-            # Show Log 2 (Custom Dialog)
-            if log2:
-                log2_msg = "\n\n".join(log2)
+            # Show calculation result log
+            if log:
+                log_msg = "\n\n".join(log)
                 
                 dialog = QDialog(self.ui)
-                dialog.setWindowTitle("계산 알림 (2/2)")
+                dialog.setWindowTitle("자동 계산 결과")
                 dialog.resize(600, 400)
                 
                 layout = QVBoxLayout(dialog)
@@ -671,7 +664,7 @@ class TechController(QObject):
                 
                 text_edit = QTextEdit()
                 text_edit.setReadOnly(True)
-                text_edit.setText(log2_msg)
+                text_edit.setText(log_msg)
                 layout.addWidget(text_edit)
                 
                 btn_ok = QPushButton("확인")
@@ -680,7 +673,7 @@ class TechController(QObject):
                 
                 dialog.exec()
             else:
-                QMessageBox.information(self.ui, "계산 알림 (2/2)", "계산된 악기가 없습니다.")
+                QMessageBox.information(self.ui, "자동 계산", "계산된 악기가 없습니다.")
         else:
             QMessageBox.warning(self.ui, "오류", "계산 중 오류가 발생했습니다.")
 
@@ -934,7 +927,7 @@ class TechController(QObject):
             valid_settings = True
                 
             if valid_settings:
-                needs, log1, log2 = self.service.get_calculated_requirements(settings)
+                needs, log = self.service.get_calculated_requirements(settings)
                 
                 # Check if matches current data
                 matches = True
@@ -944,7 +937,7 @@ class TechController(QObject):
                         matches = False
                         break
                         
-                if matches and log2:
+                if matches and log:
                     y += line_height * 2
                     
                     # Estimate height
@@ -954,7 +947,7 @@ class TechController(QObject):
                     
                     font.setBold(False)
                     painter.setFont(font)
-                    log_text = "\n\n".join(log2)
+                    log_text = "\n\n".join(log)
                     rect = painter.boundingRect(int(margin), 0, int(content_width), 0, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, log_text)
                     content_h = rect.height()
                     
