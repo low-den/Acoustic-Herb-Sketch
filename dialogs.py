@@ -997,7 +997,7 @@ class SoundDesignDialog(QDialog):
             return [
                 ("통기타 이펙터", "TS 5m 1개, XLR 5m 1개"),
                 ("믹서 직결", "TS 5m 1개"),
-                ("마이킹", "SM57 1개, XLR 5m 1개"),
+                ("마이킹", "SM57 1개, XLR 5m 1개, 롱 마이크 스탠드 1개"),
                 ("패시브 DI", "패시브 DI 모노 1개, TS 5m 1개, XLR 5m 1개"),
             ]
         elif inst.name == "일렉기타":
@@ -1029,8 +1029,8 @@ class SoundDesignDialog(QDialog):
         else:
             # 나머지 모든 악기
             return [
-                ("SM58 마이킹", "SM58 1개, XLR 5m 1개"),
-                ("SM57 마이킹", "SM57 1개, XLR 5m 1개"),
+                ("SM58 마이킹", "SM58 1개, XLR 5m 1개, 롱 마이크 스탠드 1개"),
+                ("SM57 마이킹", "SM57 1개, XLR 5m 1개, 롱 마이크 스탠드 1개"),
                 ("핀마이크·바디팩", "핀마이크·바디팩 1개, XLR 5m 1개"),
                 ("픽업-믹서직결", "TS 5m 1개"),
                 ("픽업-DI", "액티브 DI 모노 1개, TS 3m 1개, XLR 5m 1개"),

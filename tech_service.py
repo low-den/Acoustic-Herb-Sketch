@@ -244,7 +244,7 @@ class TechService(QObject):
         elif name in guitar_family_names:
             if conn == 0:    add("TS 5m", 1, name); add("XLR 5m", 1, name)
             elif conn == 1:  add("TS 5m", 1, name)
-            elif conn == 2:  add("SM57 (악기 마이크)", 1, name); add("XLR 5m", 1, name)
+            elif conn == 2:  add("SM57 (악기 마이크)", 1, name); add("XLR 5m", 1, name); add("롱 마이크 스탠드", 1, name)
             elif conn == 3:  add("패시브 DI 모노", 1, name); add("TS 5m", 1, name); add("XLR 5m", 1, name)
 
         elif name == "일렉기타":
@@ -284,8 +284,8 @@ class TechService(QObject):
             add("롱 마이크 스탠드", 3, name)
 
         else:  # 나머지
-            if conn == 0:    add("SM58 (보컬 마이크)", 1, name); add("XLR 5m", 1, name)
-            elif conn == 1:  add("SM57 (악기 마이크)", 1, name); add("XLR 5m", 1, name)
+            if conn == 0:    add("SM58 (보컬 마이크)", 1, name); add("XLR 5m", 1, name); add("롱 마이크 스탠드", 1, name)
+            elif conn == 1:  add("SM57 (악기 마이크)", 1, name); add("XLR 5m", 1, name); add("롱 마이크 스탠드", 1, name)
             elif conn == 2:  add("핀마이크·바디팩", 1, name); add("XLR 5m", 1, name)
             elif conn == 3:  add("TS 5m", 1, name)
             elif conn == 4:  add("액티브 DI 모노", 1, name); add("TS 3m", 1, name); add("XLR 5m", 1, name)

@@ -1,9 +1,39 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
 # PyInstaller
 build/
 dist/
 *.spec
 
+# IDE / Editor
+.vscode/
+.cursor/
+*.swp
+*.swo
+.idea/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+*.acou
+*.pdf
